@@ -1,0 +1,58 @@
+Pointwise
+	add+relu
+    bias+gelu
+    silu+mul
+    bias + silu + mul
+Reductions	
+    sum
+    max
+    mean
+    argmax
+Normalization
+    LayerNorm
+    RMSNorm
+    residual + layernorm
+Softmax
+    softmax
+    log_softmax
+Memory & Layout
+    type_cast
+    contiguous_copy
+Casting
+    FP32 → FP16
+    FP32 → BF16
+    FP16 ↔ BF16
+    FP16 ↔ FP8
+Quantize
+    FP16 → INT8
+    FP16 → INT4
+Dequantize
+    INT8 → FP16
+    INT4 → FP16
+Packing
+    INT4 pack
+    INT4 unpack
+Scaling
+    Per-tensor
+    Per-channel
+    Per-token
+Sampling
+    temp	
+    top-k
+    top-p
+    multinomial
+    fused sampeling
+Optimizers
+    SGD
+    AdamW
+Attention
+    FlashAttention(Inference only)?
+Matrix	
+    transpose
+    GEMM(native->tiled->autotuned tiled?)
+
+Transformer
+    Fused Transformer Ops
+    bias + dropout + residual
+    RoPE
+    KV cache?

@@ -1,0 +1,11 @@
+[[linter]]
+code = "RUFF"
+include_patterns = ["**/*.py"]
+exclude_patterns = ["practice/**"]
+command = ["ruff", "check", "--output-format=json", "@{{PATHSFILE}}"]
+
+[[linter]]
+code = "RUFF-FORMAT"
+include_patterns = ["**/*.py"]
+exclude_patterns = ["practice/**"]
+command = ["ruff", "format", "--check", "@{{PATHSFILE}}"]
