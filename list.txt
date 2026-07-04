@@ -46,7 +46,7 @@ Optimizers
     SGD
     AdamW
 Attention
-    FlashAttention(Inference only)?
+    FlashAttention(Inference only)? 
 Matrix	
     transpose
     GEMM(native->tiled->autotuned tiled?)
