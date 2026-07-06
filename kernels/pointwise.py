@@ -6,7 +6,7 @@ from utils import pointwise_launch_config, validate_binary, validate_bias
 # Pointwise kernels are memory-bandwidth bound. Empirical benchmarking 
 # showed that Triton's autotuner provided no consistent performance 
 # improvement while increasing compilation and tuning overhead. 
-# A fixed launch heuristic is used instead.
+# A fixed launch heuristic determined from empirical testing is used instead.
 
 @triton.jit
 def _add_kernel(

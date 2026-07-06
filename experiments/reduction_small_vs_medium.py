@@ -3,14 +3,18 @@ import triton
 from kernels.reductions import _sum_kernel_small, _sum_kernel_medium
 
 """
-Compare the specialized small reduction kernel against the generic streaming
-reduction kernel.
+Compare the specialized single-block reduction kernel against the generic
+streaming reduction kernel.
 
 Conclusion
 ----------
-The generic streaming kernel matches or exceeds the specialized kernel for
-nearly all practical reduction sizes. Performance differences are within
-measurement noise (<1%) except for extremely small reductions , where launch overhead dominates.
+Across two different NVIDIA GPUs, the streaming reduction kernel consistently
+matches or outperforms the specialized kernel while using a single
+implementation for all reduction sizes. Performance differences are typically
+within a few percent, with the streaming kernel generally preferred.
+
+The specialized kernel is therefore retained only as a lightweight second-stage
+reduction for hierarchical reductions and for very small sizes.
 """
 
 DEVICE = "cuda"

@@ -3,16 +3,19 @@ import triton
 from kernels.pointwise import _add_kernel
 
 """
-Compare several launch configurations for a simple pointwise addition kernel.
+Evaluate Triton autotuning for pointwise kernels.
+Several BLOCK_SIZE and num_warps configurations were benchmarked over a wide
+range of tensor sizes.
 
 Conclusion
 ----------
-Pointwise kernels are memory-bandwidth bound. Across a wide range of tensor
-sizes, varying BLOCK_SIZE and num_warps changes performance by less than a few
-percent. Triton autotuning therefore provides no consistent performance benefit
-while increasing compilation and tuning overhead.
+Pointwise kernels are memory-bandwidth bound, and autotuning produced no
+consistent performance improvement across tested GPUs. Differences between
+configurations were generally within measurement noise while autotuning added
+compile-time and tuning overhead.
 
-The library consequently uses a fixed launch heuristic instead of autotuning.
+The library therefore uses a fixed launch heuristic instead of runtime
+autotuning.
 """
 
 DEVICE = "cuda"

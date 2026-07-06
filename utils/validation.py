@@ -50,3 +50,9 @@ def validate_bias_binary(
         "Input tensors must be on the active Triton device."
     assert other.is_contiguous(), \
         "Input tensors must be contiguous."
+    
+def validate_reduction(x: torch.Tensor) -> None:
+    assert x.is_cuda, "Input tensor must be a CUDA tensor"
+    assert x.ndim >= 1, "Input tensor must have at least one dimension"
+    assert x.is_contiguous(), "Input tensor must be contiguous"
+    assert x.device == DEVICE, "Input tensor must be on the active Triton device"
