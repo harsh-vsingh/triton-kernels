@@ -12,6 +12,11 @@ from kernels import (
 
 DEVICE = "cuda"
 
+DTYPES = [
+    torch.float16,
+    torch.float32,
+    torch.bfloat16,
+]
 
 POINTWISE_SHAPES = [
     (1024,),
@@ -28,9 +33,10 @@ BROADCAST_SHAPES = [
 
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-def test_add(shape):
-    x = torch.randn(shape, device=DEVICE)
-    y = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_add(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    y = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = add(x, y)
 
@@ -38,9 +44,10 @@ def test_add(shape):
 
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-def test_add_and_relu(shape):
-    x = torch.randn(shape, device=DEVICE)
-    y = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_add_and_relu(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    y = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = add_and_relu(x, y)
 
@@ -48,9 +55,10 @@ def test_add_and_relu(shape):
 
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-def test_bias_and_gelu_elementwise(shape):
-    x = torch.randn(shape, device=DEVICE)
-    bias = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_bias_and_gelu_elementwise(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    bias = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = bias_and_gelu(x, bias)
 
@@ -59,9 +67,10 @@ def test_bias_and_gelu_elementwise(shape):
 
 
 @pytest.mark.parametrize("shape", BROADCAST_SHAPES)
-def test_bias_and_gelu_broadcast(shape):
-    x = torch.randn(shape, device=DEVICE)
-    bias = torch.randn(shape[-1], device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_bias_and_gelu_broadcast(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    bias = torch.randn(shape[-1], device=DEVICE, dtype=dtype)
 
     out = bias_and_gelu(x, bias)
 
@@ -70,9 +79,10 @@ def test_bias_and_gelu_broadcast(shape):
 
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-def test_silu_mult(shape):
-    x = torch.randn(shape, device=DEVICE)
-    mult = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_silu_mult(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = silu_mult(x, mult)
 
@@ -81,10 +91,11 @@ def test_silu_mult(shape):
 
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
-def test_bias_silu_mult_elementwise(shape):
-    x = torch.randn(shape, device=DEVICE)
-    bias = torch.randn(shape, device=DEVICE)
-    mult = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_bias_silu_mult_elementwise(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    bias = torch.randn(shape, device=DEVICE, dtype=dtype)
+    mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = bias_silu_mult(x, bias, mult)
 
@@ -93,10 +104,11 @@ def test_bias_silu_mult_elementwise(shape):
 
 
 @pytest.mark.parametrize("shape", BROADCAST_SHAPES)
-def test_bias_silu_mult_broadcast(shape):
-    x = torch.randn(shape, device=DEVICE)
-    bias = torch.randn(shape[-1], device=DEVICE)
-    mult = torch.randn(shape, device=DEVICE)
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_bias_silu_mult_broadcast(shape, dtype):
+    x = torch.randn(shape, device=DEVICE, dtype=dtype)
+    bias = torch.randn(shape[-1], device=DEVICE, dtype=dtype)
+    mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = bias_silu_mult(x, bias, mult)
 

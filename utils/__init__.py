@@ -1,4 +1,7 @@
-from .launch_config import pointwise_launch_config
+from .launch_config import (
+    pointwise_launch_config,
+    reduction_launch_config,
+)
 from .validation import (
     validate_binary,
     validate_bias,

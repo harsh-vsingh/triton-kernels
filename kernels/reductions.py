@@ -14,11 +14,15 @@ from utils import validate_reduction
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 NUM_SMS = torch.cuda.get_device_properties(DEVICE).multi_processor_count
 
-SMALL_THRESHOLD = 1024
-MEDIUM_THRESHOLD = 8192
-BLOCK_SIZE = 1024
-NUM_STAGES = 2
-MAX_PROGRAMS_PER_ROW = 8
+from utils import reduction_launch_config
+(
+    SMALL_THRESHOLD,
+    MEDIUM_THRESHOLD,
+    BLOCK_SIZE,
+    NUM_STAGES,
+    MAX_PROGRAMS_PER_ROW,
+) = reduction_launch_config()
+
 
 @triton.jit
 def _sum_kernel_small(
@@ -146,7 +150,7 @@ def _max_kernel_medium(
 ):
     row_id = tl.program_id(0)
     row_start = n_cols * row_id
-    acc = tl.full((), float("-inf"), x_ptr.element_type())
+    acc = tl.full((), float("-inf"), tl.float32)
     offset_range = tl.arange(0, BLOCK_SIZE)
     for col_idx in tl.range(0, n_cols, BLOCK_SIZE, num_stages=num_stages):
         offsets = row_start + col_idx + offset_range
@@ -169,7 +173,7 @@ def _max_kernel_large(
     row_id = pid // programs_per_row
     chunk_id = pid % programs_per_row
     row_start = row_id * n_cols
-    acc = tl.full((), float("-inf"), x_ptr.element_type())
+    acc = tl.full((), float("-inf"), tl.float32)
     offset_range = tl.arange(0, BLOCK_SIZE)
     for chunk in tl.range(chunk_id, chunks_per_row, programs_per_row, num_stages=num_stages):
         block_start = row_start + chunk * BLOCK_SIZE
@@ -205,7 +209,7 @@ def max(x: torch.Tensor) -> torch.Tensor:
         partial = partial.reshape(n_rows, programs_per_row)
         small_block_size = triton.next_power_of_2(programs_per_row)
         _max_kernel_small[(n_rows,)](partial, out, programs_per_row, BLOCK_SIZE=small_block_size)
-    return out.view(x.shape[:-1])
+    return out.view(x.shape[:-1]).to(x.dtype)
 
 
 @triton.jit
@@ -235,7 +239,7 @@ def _argmax_kernel_medium(
 ):
     row_id = tl.program_id(0)
     row_start = n_cols * row_id
-    acc = tl.full((), float("-inf"), x_ptr.element_type())
+    acc = tl.full((), float("-inf"), tl.float32)
     acc_idx = tl.zeros((), dtype=tl.int32)
     offset_range = tl.arange(0, BLOCK_SIZE)
 
@@ -265,7 +269,7 @@ def _argmax_kernel_large(
     row_id = pid // programs_per_row
     chunk_id = pid % programs_per_row
     row_start = row_id * n_cols
-    acc = tl.full((), float("-inf"), x_ptr.element_type())
+    acc = tl.full((), float("-inf"), tl.float32)
     acc_idx = tl.zeros((), dtype=tl.int32)
     offset_range = tl.arange(0, BLOCK_SIZE)
 
@@ -313,4 +317,201 @@ def argmax(x: torch.Tensor) -> torch.Tensor:
         winner = torch.empty((n_rows,), dtype=torch.int32, device=x.device)
         _argmax_kernel_small[(n_rows,)](partial_val, winner, programs_per_row, BLOCK_SIZE=small_block_size)
         out = partial_idx.gather(1, winner.unsqueeze(1)).squeeze(1)
-    return out.view(x.shape[:-1])
+    return out.view(x.shape[:-1]).to(torch.int64)
+
+
+@triton.jit
+def _min_kernel_small(
+    x_ptr,
+    out_ptr,
+    x_stride,
+    BLOCK_SIZE: tl.constexpr  
+):
+    pid = tl.program_id(0)
+    block_start = pid * x_stride
+    offset_range = tl.arange(0, BLOCK_SIZE)
+    offsets = block_start + offset_range
+
+    mask = offset_range < x_stride
+    x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))
+    x_min = tl.min(x, axis=0)
+    tl.store(out_ptr + pid, x_min)
+
+@triton.jit
+def _min_kernel_medium(
+    x_ptr,
+    out_ptr,
+    n_cols,
+    BLOCK_SIZE: tl.constexpr,
+    num_stages: tl.constexpr 
+):
+    row_id = tl.program_id(0)
+    row_start = n_cols * row_id
+    acc = tl.full((), float("inf"), tl.float32)
+    offset_range = tl.arange(0, BLOCK_SIZE)
+    for col_idx in tl.range(0, n_cols, BLOCK_SIZE, num_stages=num_stages):
+        offsets = row_start + col_idx + offset_range
+        mask = col_idx + offset_range < n_cols
+        x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))
+        acc = tl.minimum(acc, tl.min(x, axis=0))
+    tl.store(out_ptr + row_id, acc)
+
+@triton.jit
+def _min_kernel_large(
+    x_ptr,
+    out_buffer,
+    n_cols,
+    programs_per_row,
+    chunks_per_row,
+    BLOCK_SIZE: tl.constexpr,
+    num_stages: tl.constexpr 
+):
+    pid = tl.program_id(0)
+    row_id = pid // programs_per_row
+    chunk_id = pid % programs_per_row
+    row_start = row_id * n_cols
+    acc = tl.full((), float("inf"), tl.float32)
+    offset_range = tl.arange(0, BLOCK_SIZE)
+    for chunk in tl.range(chunk_id, chunks_per_row, programs_per_row, num_stages=num_stages):
+        block_start = row_start + chunk * BLOCK_SIZE
+        offsets = block_start + offset_range
+        mask = chunk * BLOCK_SIZE + offset_range < n_cols
+        x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))    
+        acc = tl.minimum(acc, tl.min(x, axis=0))
+    tl.store(out_buffer + pid, acc)
+
+def min(x: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the minimum over the last dimension.
+    Assumes contiguous CUDA tensor of any shape and dtype.
+    Returns a float32 tensor.
+    """
+    validate_reduction(x)
+
+    n_rows = x.numel() // x.shape[-1]
+    n_cols = x.shape[-1]
+    out = torch.empty((n_rows,), dtype=torch.float32, device=x.device)
+
+    if n_cols <= SMALL_THRESHOLD:
+        small_block_size = triton.next_power_of_2(n_cols)
+        _min_kernel_small[(n_rows,)](x, out, n_cols, BLOCK_SIZE=small_block_size)
+    elif n_cols <= MEDIUM_THRESHOLD or n_rows >= NUM_SMS:
+        _min_kernel_medium[(n_rows,)](x, out, n_cols, BLOCK_SIZE=BLOCK_SIZE, num_stages=NUM_STAGES)
+    else:
+        programs_per_row = min(triton.cdiv(n_cols, BLOCK_SIZE), MAX_PROGRAMS_PER_ROW)
+        chunks_per_row = triton.cdiv(n_cols, BLOCK_SIZE)
+        partial = torch.empty(n_rows * programs_per_row, device=x.device, dtype=torch.float32)
+        
+        _min_kernel_large[(n_rows * programs_per_row,)](x, partial, n_cols, programs_per_row, chunks_per_row, BLOCK_SIZE=BLOCK_SIZE, num_stages=NUM_STAGES)
+        partial = partial.reshape(n_rows, programs_per_row)
+        small_block_size = triton.next_power_of_2(programs_per_row)
+        _min_kernel_small[(n_rows,)](partial, out, programs_per_row, BLOCK_SIZE=small_block_size)
+    return out.view(x.shape[:-1]).to(x.dtype)
+
+
+@triton.jit
+def _argmin_kernel_small(
+    x_ptr,
+    out_ptr,
+    x_stride,
+    BLOCK_SIZE: tl.constexpr  
+):
+    pid = tl.program_id(0)
+    block_start = pid * x_stride
+    offset_range = tl.arange(0, BLOCK_SIZE)
+    offsets = block_start + offset_range
+
+    mask = offset_range < x_stride
+    x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))
+    x_min = tl.argmin(x, axis=0)
+    tl.store(out_ptr + pid, x_min)
+
+@triton.jit
+def _argmin_kernel_medium(
+    x_ptr,
+    out_ptr,
+    n_cols,
+    BLOCK_SIZE: tl.constexpr,
+    num_stages: tl.constexpr 
+):
+    row_id = tl.program_id(0)
+    row_start = n_cols * row_id
+    acc = tl.full((), float("inf"), tl.float32)
+    acc_idx = tl.zeros((), dtype=tl.int32)
+    offset_range = tl.arange(0, BLOCK_SIZE)
+
+    for col_idx in tl.range(0, n_cols, BLOCK_SIZE, num_stages=num_stages):
+        offsets = row_start + col_idx + offset_range
+        mask = col_idx + offset_range < n_cols
+        x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))
+
+        block_min = tl.min(x, axis=0)
+        block_idx = tl.argmin(x, axis=0)
+        acc_idx = tl.where(acc > block_min, col_idx + block_idx, acc_idx)
+        acc = tl.minimum(acc, block_min)
+    tl.store(out_ptr + row_id, acc_idx)
+
+@triton.jit
+def _argmin_kernel_large(
+    x_ptr,
+    out_buffer_val,
+    out_buffer_idx,
+    n_cols,
+    programs_per_row,
+    chunks_per_row,
+    BLOCK_SIZE: tl.constexpr,
+    num_stages: tl.constexpr 
+):
+    pid = tl.program_id(0)
+    row_id = pid // programs_per_row
+    chunk_id = pid % programs_per_row
+    row_start = row_id * n_cols
+    acc = tl.full((), float("inf"), tl.float32)
+    acc_idx = tl.zeros((), dtype=tl.int32)
+    offset_range = tl.arange(0, BLOCK_SIZE)
+
+    for chunk in tl.range(chunk_id, chunks_per_row, programs_per_row, num_stages=num_stages):
+        block_start = row_start + chunk * BLOCK_SIZE
+        offsets = block_start + offset_range
+        mask = chunk * BLOCK_SIZE + offset_range < n_cols
+        x = tl.load(x_ptr + offsets, mask=mask, other=float("inf"))    
+
+        block_min = tl.min(x, axis=0)
+        block_idx = tl.argmin(x, axis=0)
+        acc_idx = tl.where(acc > block_min, chunk * BLOCK_SIZE + block_idx, acc_idx)
+        acc = tl.minimum(acc, block_min)
+    tl.store(out_buffer_idx + pid, acc_idx)
+    tl.store(out_buffer_val + pid, acc)
+
+def argmin(x: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the index of the minimum over the last dimension.
+    Assumes contiguous CUDA tensor of any shape and dtype.
+    Returns a int32 tensor.
+    """
+    validate_reduction(x)
+
+    n_rows = x.numel() // x.shape[-1]
+    n_cols = x.shape[-1]
+    out = torch.empty((n_rows,), dtype=torch.int32, device=x.device)
+
+    if n_cols <= SMALL_THRESHOLD:
+        small_block_size = triton.next_power_of_2(n_cols)
+        _argmin_kernel_small[(n_rows,)](x, out, n_cols, BLOCK_SIZE=small_block_size)
+    elif n_cols <= MEDIUM_THRESHOLD or n_rows >= NUM_SMS:
+        _argmin_kernel_medium[(n_rows,)](x, out, n_cols, BLOCK_SIZE=BLOCK_SIZE, num_stages=NUM_STAGES)
+    else:
+        programs_per_row = min(triton.cdiv(n_cols, BLOCK_SIZE), MAX_PROGRAMS_PER_ROW)
+        chunks_per_row = triton.cdiv(n_cols, BLOCK_SIZE)
+        partial_val = torch.empty(n_rows * programs_per_row, device=x.device, dtype=torch.float32)
+        partial_idx = torch.empty(n_rows * programs_per_row, device=x.device, dtype=torch.int32)
+        _argmin_kernel_large[(n_rows * programs_per_row,)](x, partial_val, partial_idx, n_cols, programs_per_row, chunks_per_row, BLOCK_SIZE=BLOCK_SIZE, num_stages=NUM_STAGES)
+
+        partial_val = partial_val.reshape(n_rows, programs_per_row)
+        partial_idx = partial_idx.reshape(n_rows, programs_per_row)
+        small_block_size = triton.next_power_of_2(programs_per_row)
+
+        winner = torch.empty((n_rows,), dtype=torch.int32, device=x.device)
+        _argmin_kernel_small[(n_rows,)](partial_val, winner, programs_per_row, BLOCK_SIZE=small_block_size)
+        out = partial_idx.gather(1, winner.unsqueeze(1)).squeeze(1)
+    return out.view(x.shape[:-1]).to(torch.int64)

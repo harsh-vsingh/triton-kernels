@@ -98,7 +98,7 @@ def _bias_and_gelu_kernel(
     mask = offsets < n_elements
     x = tl.load(x0_ptr + offsets, mask=mask)
     bias = tl.load(bias_ptr + offsets % hidden_dim, mask=mask)
-    tmp = x + bias
+    tmp = (x + bias).to(tl.float32)
     out = 0.5 * tmp * (1.0 + tl.extra.libdevice.tanh(0.7978845608028654 * (tmp + 0.044715 * tmp * tmp * tmp)))
     tl.store(out0_ptr + offsets, out, mask=mask)
 
@@ -135,7 +135,7 @@ def _silu_mult_kernel(
     offsets = block_start + tl.arange(0, BLOCK_SIZE)
 
     mask = offsets < n_elements
-    x = tl.load(x0_ptr + offsets, mask=mask)
+    x = tl.load(x0_ptr + offsets, mask=mask).to(tl.float32)
     mul = tl.load(mul_ptr + offsets, mask=mask)
     sigmoid = 1.0 / (1.0 + tl.exp(-x))
     out = x * sigmoid * mul 
@@ -177,7 +177,7 @@ def _bias_silu_mult_kernel(
     x = tl.load(x0_ptr + offsets, mask=mask)
     bias = tl.load(bias_ptr + offsets % hidden_dim, mask=mask)
     mult = tl.load(mult_ptr + offsets, mask=mask)
-    biased = x + bias
+    biased = (x + bias).to(tl.float32)
     sigmoid = 1.0 / (1.0 + tl.exp(-biased))
     out = biased * sigmoid * mult
     tl.store(out0_ptr + offsets, out, mask=mask)
