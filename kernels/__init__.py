@@ -15,6 +15,10 @@ from .reductions import (
     argmin
 )
 
+from .normalization import (
+    layernorm,
+)
+
 __all__ = [
     "add",
     "add_and_relu", 
@@ -26,5 +30,6 @@ __all__ = [
     "max",
     "min",
     "argmax",
-    "argmin"
+    "argmin",
+    "layernorm",
 ]

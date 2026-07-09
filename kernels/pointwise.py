@@ -30,6 +30,7 @@ def _add_kernel(
 def add(
     x: torch.Tensor, 
     y: torch.Tensor,
+    out: torch.Tensor = None
 ) -> torch.Tensor:
     """
     Elementwise add.
@@ -40,7 +41,7 @@ def add(
     block_size, num_warps = pointwise_launch_config(n)
     grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
 
-    out = torch.empty_like(x)
+    out = torch.empty_like(x) if out is None else out   
     _add_kernel[grid](x, y, out, n, BLOCK_SIZE=block_size, num_warps=num_warps)
     return out
 
@@ -67,6 +68,7 @@ def _add_and_relu_kernel(
 def add_and_relu(
     x:torch.Tensor,
     y: torch.Tensor,
+    out: torch.Tensor = None
 ) -> torch.Tensor:
     """
     Elementwise add and ReLU.
@@ -77,7 +79,7 @@ def add_and_relu(
     block_size, num_warps = pointwise_launch_config(n)
     grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
 
-    out = torch.empty_like(x)
+    out = torch.empty_like(x) if out is None else out
     _add_and_relu_kernel[grid](x, y, out, n, BLOCK_SIZE=block_size, num_warps=num_warps)
     return out
 
@@ -106,6 +108,7 @@ def _bias_and_gelu_kernel(
 def bias_and_gelu(
     x: torch.Tensor,
     bias: torch.Tensor,
+    out: torch.Tensor = None
 ) -> torch.Tensor:
     """
     Elementwise add bias and apply GELU activation.
@@ -117,7 +120,7 @@ def bias_and_gelu(
     hidden_dim = bias.numel()
     grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
 
-    out = torch.empty_like(x)
+    out = torch.empty_like(x) if out is None else out
     _bias_and_gelu_kernel[grid](x, bias, out, n, hidden_dim, BLOCK_SIZE=block_size, num_warps=num_warps)
     return out
 
@@ -144,6 +147,7 @@ def _silu_mult_kernel(
 def silu_mult(
     x: torch.Tensor,
     mul: torch.Tensor,
+    out : torch.Tensor = None
 ) -> torch.Tensor:
     """
     Elementwise multiply with SiLU activation.
@@ -154,7 +158,7 @@ def silu_mult(
     block_size, num_warps = pointwise_launch_config(n)
     grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
 
-    out = torch.empty_like(x)
+    out = torch.empty_like(x) if out is None else out
     _silu_mult_kernel[grid](x, mul, out, n, BLOCK_SIZE=block_size, num_warps=num_warps)
     return out
 
@@ -187,6 +191,7 @@ def bias_silu_mult(
     x: torch.Tensor,
     bias: torch.Tensor,
     mult: torch.Tensor,
+    out: torch.Tensor = None
 ) -> torch.Tensor:
     """
     Elementwise add bias, apply SiLU activation, and multiply with another tensor.
@@ -199,6 +204,6 @@ def bias_silu_mult(
     hidden_dim = bias.numel()
     grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
 
-    out = torch.empty_like(x)
+    out = torch.empty_like(x) if out is None else out
     _bias_silu_mult_kernel[grid](x, bias, mult, out, n, hidden_dim, BLOCK_SIZE=block_size, num_warps=num_warps)
     return out

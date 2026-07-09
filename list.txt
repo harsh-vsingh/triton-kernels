@@ -1,9 +1,9 @@
-Pointwise
+Pointwise(done)
 	add+relu
     bias+gelu
     silu+mul
     bias + silu + mul
-Reductions	
+Reductions(done)
     sum
     max
     mean
@@ -15,15 +15,14 @@ Normalization
 Softmax
     softmax
     log_softmax
-Matrix	
-    transpose
+Matrix
     GEMM(native->tiled->autotuned tiled)
 Attention
     QK^T GEMM
     online softmax
     softmax @ V
-    FlashAttention(Inference only)
-Sampling
+    FlashAttention(Inference only, casual)
+Sampling(cuda)
     temp	
     top-k
     top-p
