@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from kernels import layernorm
+from kernels import layernorm, rms_norm, residual_layernorm
 
 DEVICE = "cuda"
 
@@ -15,17 +15,33 @@ WARMUP = 20
 ITERS = 100
 
 
-def bytes_for(x, gamma, beta, out):
-    read_bytes = (
+def bytes_layernorm(x, gamma, beta, out):
+    return (
         x.numel() * x.element_size()
         + gamma.numel() * gamma.element_size()
         + beta.numel() * beta.element_size()
+        + out.numel() * out.element_size()
     )
-    write_bytes = out.numel() * out.element_size()
-    return read_bytes + write_bytes
 
 
-def benchmark(name, fn, ref_fn, args):
+def bytes_rmsnorm(x, gamma, out):
+    return (
+        x.numel() * x.element_size()
+        + gamma.numel() * gamma.element_size()
+        + out.numel() * out.element_size()
+    )
+
+def bytes_residual_layernorm(x, residual, gamma, beta, out):
+    return (
+        x.numel() * x.element_size()
+        + residual.numel() * residual.element_size()
+        + gamma.numel() * gamma.element_size()
+        + beta.numel() * beta.element_size()
+        + out.numel() * out.element_size()
+    )
+
+
+def benchmark(name, fn, ref_fn, args, bytes_fn):
     for _ in range(WARMUP):
         fn(*args)
         ref_fn(*args)
@@ -33,9 +49,8 @@ def benchmark(name, fn, ref_fn, args):
     torch.cuda.synchronize()
 
     out = fn(*args)
-    total_bytes = bytes_for(args[0], args[1], args[2], out)
+    total_bytes = bytes_fn(*args, out)
 
-    # Triton
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
 
@@ -48,7 +63,6 @@ def benchmark(name, fn, ref_fn, args):
     triton_ms = start.elapsed_time(end) / ITERS
     triton_bw = total_bytes / (triton_ms / 1000) / 1e9
 
-    # Torch
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
 
@@ -70,6 +84,7 @@ def benchmark(name, fn, ref_fn, args):
 
 
 def main():
+
     shapes = [
         (1024,),
         (4096,),
@@ -78,7 +93,20 @@ def main():
         (512, 1024),
         (2048, 2048),
         (4096, 4096),
+
+        # Large kernel
+        (1, 32768),
+        (2, 32768),
+        (8, 32768),
+        (16, 32768),
+
+        (1, 65536),
+        (2, 65536),
+        (8, 65536),
+
+        (1, 131072),
     ]
+    
 
     eps = 1e-5
 
@@ -96,6 +124,7 @@ def main():
             hidden_dim = shape[-1]
             gamma = torch.randn(hidden_dim, device=DEVICE, dtype=dtype)
             beta = torch.randn(hidden_dim, device=DEVICE, dtype=dtype)
+            residual = torch.randn_like(x)
 
             benchmark(
                 "layernorm",
@@ -108,6 +137,34 @@ def main():
                     eps=eps,
                 ),
                 (x, gamma, beta),
+                bytes_layernorm,
+            )
+
+            benchmark(
+                "rmsnorm",
+                lambda x, g: rms_norm(x, g, eps),
+                lambda x, g: F.rms_norm(
+                    x,
+                    (hidden_dim,),
+                    weight=g,
+                    eps=eps,
+                ),
+                (x, gamma),
+                bytes_rmsnorm,
+            )
+
+            benchmark(
+                "res+layernorm",
+                lambda x, r, g, b: residual_layernorm(x, r, g, b, eps),
+                lambda x, r, g, b: F.layer_norm(
+                    x + r,
+                    (hidden_dim,),
+                    weight=g,
+                    bias=b,
+                    eps=eps,
+                ),
+                (x, residual, gamma, beta),
+                bytes_residual_layernorm,
             )
 
 

@@ -17,6 +17,8 @@ from .reductions import (
 
 from .normalization import (
     layernorm,
+    rms_norm,
+    residual_layernorm,
 )
 
 __all__ = [
@@ -32,4 +34,6 @@ __all__ = [
     "argmax",
     "argmin",
     "layernorm",
+    "rms_norm",
+    "residual_layernorm"
 ]

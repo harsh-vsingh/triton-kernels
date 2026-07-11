@@ -7,4 +7,6 @@ from .validation import (
     validate_bias,
     validate_bias_binary,
     validate_reduction,
+    validate_layernorm,
+    validate_rms_norm,
 )

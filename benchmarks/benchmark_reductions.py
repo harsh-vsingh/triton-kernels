@@ -1,5 +1,5 @@
 import torch
-
+import builtins
 from kernels import (
     sum,
     mean,
@@ -76,6 +76,18 @@ def main():
         (512, 1024),
         (2048, 2048),
         (4096, 4096),
+
+        # Large kernel
+        (1, 32768),
+        (2, 32768),
+        (8, 32768),
+        (16, 32768),
+
+        (1, 65536),
+        (2, 65536),
+        (8, 65536),
+
+        (1, 131072),
     ]
 
     for dtype in DTYPES:
