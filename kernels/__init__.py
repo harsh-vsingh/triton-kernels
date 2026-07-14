@@ -21,6 +21,11 @@ from .normalization import (
     residual_layernorm,
 )
 
+from .softmax import (
+    softmax,
+    log_softmax,
+)
+
 __all__ = [
     "add",
     "add_and_relu", 
@@ -35,5 +40,7 @@ __all__ = [
     "argmin",
     "layernorm",
     "rms_norm",
-    "residual_layernorm"
+    "residual_layernorm",
+    "softmax",
+    "log_softmax",
 ]

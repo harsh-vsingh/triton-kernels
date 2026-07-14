@@ -8,20 +8,26 @@ Reductions(done)
     max
     mean
     argmax
-Normalization
+Normalization(done)
     LayerNorm
     RMSNorm
     residual + layernorm
-Softmax
+Softmax(done)
     softmax
     log_softmax
 Matrix
-    GEMM(native->tiled->autotuned tiled)
+    Tiled GEMM
+    Block Pointer GEMM
+    Autotuned GEMM
+    Batched GEMM
+    Persistent GEMM
+    Split-K GEMM
 Attention
-    QK^T GEMM
-    online softmax
-    softmax @ V
-    FlashAttention(Inference only, casual)
+    QKᵀ GEMM
+    Online Softmax
+    Softmax @ V
+    FlashAttention (non-causal)
+    FlashAttention (causal)
 Sampling(cuda)
     temp	
     top-k
@@ -30,10 +36,14 @@ Sampling(cuda)
     fused sampeling
 Memory & Layout
     type_cast
-    contiguous_copy
+    copy
+    contiguous
     transpose
-    permute copy
-    contiguous copy
+    permute
+    reshape (view)
+    slice
+    gather
+    scatter
 Type conversions
     FP32 → FP16
     FP32 → BF16
@@ -56,3 +66,4 @@ Transformer blocks
     bias + dropout + residual
     RoPe
     KV cache
+    Paged kv cache
