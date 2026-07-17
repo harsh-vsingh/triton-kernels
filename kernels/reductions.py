@@ -5,13 +5,6 @@ import triton
 import triton.language as tl
 from utils import validate_reduction
 
-# Reduction kernels use empirically determined dispatch heuristics.
-# Small reductions are performed within a single program. Larger reductions
-# stream through the row using one program when sufficient row-level
-# parallelism exists to occupy the GPU. Multi-program reductions are used only
-# when additional parallelism is required, followed by a second-stage
-# reduction. These heuristics were selected from benchmarking.
-
 from utils import reduction_launch_config
 (
     SMALL_THRESHOLD,

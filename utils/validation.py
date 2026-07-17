@@ -184,3 +184,44 @@ def validate_rms_norm(
             "Output tensor must have the same dtype as the input tensor."
         assert out.is_contiguous(), \
             "Output tensor must be contiguous."
+        
+def validate_gemm(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    out: torch.Tensor | None = None,
+) -> None:
+    assert x.is_cuda and y.is_cuda, \
+        "Input tensors must be CUDA tensors."
+    assert x.device == DEVICE and y.device == DEVICE, \
+        "Input tensors must be on the active Triton device."
+    assert x.is_contiguous() and y.is_contiguous(), \
+        "Input tensors must be contiguous."
+
+    assert x.ndim == 2 and y.ndim == 2, \
+        "Input tensors must be 2D."
+
+    assert x.shape[1] == y.shape[0], \
+        "Inner dimensions must match."
+
+    assert x.dtype == y.dtype, \
+        "Input tensors must have the same dtype."
+
+    assert x.dtype in (
+        torch.float16,
+        torch.float32,
+        torch.float64,
+        torch.bfloat16,
+    ), \
+        "Input tensor must have a floating-point dtype."
+
+    if out is not None:
+        assert out.is_cuda, \
+            "Output tensor must be a CUDA tensor."
+        assert out.device == x.device, \
+            "Output tensor must be on the same device as the input tensors."
+        assert out.is_contiguous(), \
+            "Output tensor must be contiguous."
+        assert out.shape == (x.shape[0], y.shape[1]), \
+            "Output tensor has incorrect shape."
+        assert out.dtype == torch.float32, \
+            "Output tensor must have dtype torch.float32."

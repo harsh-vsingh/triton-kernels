@@ -26,6 +26,8 @@ from .softmax import (
     log_softmax,
 )
 
+from .gemm import gemm
+
 __all__ = [
     "add",
     "add_and_relu", 
@@ -43,4 +45,5 @@ __all__ = [
     "residual_layernorm",
     "softmax",
     "log_softmax",
+    "gemm",
 ]

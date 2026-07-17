@@ -15,32 +15,32 @@ Normalization(done)
 Softmax(done)
     softmax
     log_softmax
-Matrix
-    Tiled GEMM
-    Block Pointer GEMM
-    Autotuned GEMM
-    Batched GEMM
-    Persistent GEMM
-    Split-K GEMM
+Matrix(done)
+    Tiled Autotuned GEMM
+    Persistent Grouped GEMM
+    Persistant Grouped Split-k GEMM
 Attention
-    QKᵀ GEMM
-    Online Softmax
-    Softmax @ V
-    FlashAttention (non-causal)
+    FlashAttention v1
     FlashAttention (causal)
+    FlashAttention v2
+Parallel Algorithms (CUDA)
+    Reduction
+    Prefix Sum
+    Stream Compaction
+    Segmented Scan 
+    Radix Sort
 Sampling(cuda)
     temp	
     top-k
     top-p
     multinomial
     fused sampeling
-Memory & Layout
-    type_cast
+Memory & Layout(cuda)
     copy
+    type_cast
     contiguous
     transpose
     permute
-    reshape (view)
     slice
     gather
     scatter
@@ -67,3 +67,7 @@ Transformer blocks
     RoPe
     KV cache
     Paged kv cache
+
+
+    warp specialisation
+    tma 

@@ -9,4 +9,5 @@ from .validation import (
     validate_reduction,
     validate_layernorm,
     validate_rms_norm,
+    validate_gemm,
 )
