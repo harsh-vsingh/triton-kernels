@@ -21,8 +21,26 @@ Matrix(done)
     Persistant Grouped Split-k GEMM
 Attention
     FlashAttention v1
-    FlashAttention (causal)
+        causal + non-causal
+        multi-head
+        cross-attention
+        GQA/MQA
+        ragged
     FlashAttention v2
+        causal + non-causal
+        multi-head
+        cross-attention
+        GQA/MQA
+        ragged
+        paged
+    Decode Attention
+        paged
+        ragged
+        dense
+    Speducative Decode
+        dense
+        ragged
+        paged
 Parallel Algorithms (CUDA)
     Reduction
     Prefix Sum
@@ -55,6 +73,7 @@ Scaling
     Per-tensor
     Per-channel
     Per-token
+    Per-group
 Quantize
     FP16 → INT8
     FP16 → INT4
@@ -65,9 +84,9 @@ Transformer blocks
     Fused Transformer Ops
     bias + dropout + residual
     RoPe
-    KV cache
-    Paged kv cache
+    Swiglu mlp
 
 
-    warp specialisation
-    tma 
+
+warp specialisation
+tma 
