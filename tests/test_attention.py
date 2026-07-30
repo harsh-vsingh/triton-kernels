@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from kernels.attention_v1 import flash_attention_v1
+from kernels.attention import flash_attention_v2
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -28,7 +28,7 @@ def attn_tolerances(dtype, N):
     return dict(atol=atol, rtol=cfg["rtol"])
 
 # Test dimensions
-LAYOUTS = ["dense", "ragged", "paged"]
+LAYOUTS = ["dense", "paged", "ragged"]
 ATTN_TYPES = ["self", "cross"]
 TOPOLOGIES = ["mha", "gqa", "mqa"]
 CAUSAL_FLAGS = [False, True]
@@ -162,7 +162,7 @@ def test_comprehensive_attention(layout, attn_type, topology, causal, dtype):
             k_dense[b, :, :kv_lens[b], :] = ks[b].transpose(0, 1)
             v_dense[b, :, :kv_lens[b], :] = vs[b].transpose(0, 1)
             
-        out_dense = flash_attention_v1(
+        out_dense = flash_attention_v2(
             q_dense, k_dense, v_dense, is_causal=causal
         )
         
@@ -179,7 +179,7 @@ def test_comprehensive_attention(layout, attn_type, topology, causal, dtype):
         q_indptr = torch.tensor([0] + q_lens, device=DEVICE, dtype=torch.int32).cumsum(dim=0)
         kv_indptr = torch.tensor([0] + kv_lens, device=DEVICE, dtype=torch.int32).cumsum(dim=0)
         
-        out_ragged = flash_attention_v1(
+        out_ragged = flash_attention_v2(
             q_ragged, k_ragged, v_ragged,
             is_causal=causal,
             q_indptr=q_indptr,
@@ -194,36 +194,56 @@ def test_comprehensive_attention(layout, attn_type, topology, causal, dtype):
             extracted_outs.append(out_ragged[start:end])
 
     elif layout == "paged":
-        q_cache, q_table = allocate_paged_cache(qs, q_lens, QH, D, PAGE_SIZE)
-        k_cache, k_table = allocate_paged_cache(ks, kv_lens, KVH, D, PAGE_SIZE)
-        v_cache, v_table = allocate_paged_cache(vs, kv_lens, KVH, D, PAGE_SIZE)
-        
-        # For paged, the wrapper expects the exact sequence lengths in the indptr
-        q_lens_tensor = torch.tensor(q_lens, dtype=torch.int32, device=DEVICE)
-        kv_lens_tensor = torch.tensor(kv_lens, dtype=torch.int32, device=DEVICE)
-        
-        out_cache = flash_attention_v1(
-            q_cache, k_cache, v_cache,
+        # Q stays dense.
+        max_q = max(q_lens)
+
+        q_dense = torch.zeros(
+            (B, QH, max_q, D),
+            device=DEVICE,
+            dtype=dtype,
+        )
+
+        for b in range(B):
+            q_dense[b, :, : q_lens[b], :] = qs[b].transpose(0, 1)
+
+        # Only KV are stored in the paged cache.
+        k_cache, k_table = allocate_paged_cache(
+            ks,
+            kv_lens,
+            KVH,
+            D,
+            PAGE_SIZE,
+        )
+
+        v_cache, v_table = allocate_paged_cache(
+            vs,
+            kv_lens,
+            KVH,
+            D,
+            PAGE_SIZE,
+        )
+
+        kv_lens_tensor = torch.tensor(
+            kv_lens,
+            dtype=torch.int32,
+            device=DEVICE,
+        )
+
+        out_dense = flash_attention_v2(
+            q_dense,
+            k_cache,
+            v_cache,
             is_causal=causal,
-            q_indptr=q_lens_tensor,
             kv_indptr=kv_lens_tensor,
-            q_block_table=q_table,
             k_block_table=k_table,
             v_block_table=v_table,
-            q_page_size=PAGE_SIZE,
-            kv_page_size=PAGE_SIZE
+            kv_page_size=PAGE_SIZE,
         )
-        
-        # Unpack paged output for validation
-        extracted_outs = []
-        for b in range(B):
-            tokens = []
-            for i in range(q_lens[b]):
-                logical_page = i // PAGE_SIZE
-                offset = i % PAGE_SIZE
-                phys_page = q_table[b, logical_page].item()
-                tokens.append(out_cache[phys_page * PAGE_SIZE + offset])
-            extracted_outs.append(torch.stack(tokens) if tokens else torch.empty((0, QH, D), device=DEVICE, dtype=dtype))
+
+        extracted_outs = [
+            out_dense[b, :, : q_lens[b], :].transpose(0, 1)
+            for b in range(B)
+        ]
 
     # 4. Assert correctness sequence by sequence
     for b in range(B):

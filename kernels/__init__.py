@@ -26,8 +26,9 @@ from .softmax import (
     log_softmax,
 )
 
-from .attention_v1 import (
+from .attention import (
     flash_attention_v1,
+    flash_attention_v2,
 )
 
 from .attention_decode import (
@@ -55,5 +56,6 @@ __all__ = [
     "log_softmax",
     "gemm",
     "flash_attention_v1",
+    "flash_attention_v2",
     "decode_attention",
 ]

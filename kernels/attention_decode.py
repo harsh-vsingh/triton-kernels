@@ -3,6 +3,23 @@ import triton.language as tl
 import torch
 import math
 
+@triton.autotune(
+configs = [
+    triton.Config({"BLOCK_N": 32},  num_warps=2, num_stages=1),
+    triton.Config({"BLOCK_N": 32},  num_warps=2, num_stages=2),
+
+    triton.Config({"BLOCK_N": 64},  num_warps=2, num_stages=2),
+    triton.Config({"BLOCK_N": 64},  num_warps=4, num_stages=2),
+
+    triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=2),
+    triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=3),
+    triton.Config({"BLOCK_N": 128}, num_warps=8, num_stages=2),
+
+    triton.Config({"BLOCK_N": 256}, num_warps=4, num_stages=2),
+    triton.Config({"BLOCK_N": 256}, num_warps=8, num_stages=2),
+],
+    key=["N", "TYPE", "kv_page_size"],
+)
 @triton.jit
 def _decode_split_kernel(
     q_ptr,
@@ -76,8 +93,9 @@ def _decode_split_kernel(
         mask = offs_n < seq_len
 
         if TYPE == 0 or TYPE == 1:
+            tmp = offs_n[:, None] * (KV_HEADS * HEAD_DIM) + offs_d[None, :]
             k = tl.load(
-                k_ptr + offs_n[:, None] * (KV_HEADS * HEAD_DIM) + offs_d[None, :],
+                k_ptr + tmp,
                 mask=mask[:, None],
                 other=0.0,
             ).to(tl.float32)
@@ -168,8 +186,6 @@ def decode_attention(
     k_block_table: torch.Tensor | None = None,
     v_block_table: torch.Tensor | None = None,
     kv_page_size: int | None = None,
-    split_k: int = 8,
-    block_n: int = 64,
 ) -> torch.Tensor:
     """
     Decode attention with Dense, Ragged, and Paged KV Cache support.
@@ -187,8 +203,8 @@ def decode_attention(
 
     Paged (mode 2):
         q : (B, QH, D)
-        k : (total_kv_tokens, KVH, D) or (num_blocks, page_size, KVH, D)
-        v : (total_kv_tokens, KVH, D) or (num_blocks, page_size, KVH, D)
+        k : (total_kv_tokens, KVH, D)
+        v : (total_kv_tokens, KVH, D)
         kv_indptr : (B,) -> sequence context length per batch
         k_block_table : (B, max_blocks_per_seq)
         v_block_table : (B, max_blocks_per_seq)
@@ -226,10 +242,19 @@ def decode_attention(
         B, Q_HEADS, HEAD_DIM = q.shape
         _, KV_HEADS, N, _ = k.shape
 
-        # Kernel expects (B, N, KVH, D)
         k = k.permute(0, 2, 1, 3).contiguous()
         v = v.permute(0, 2, 1, 3).contiguous()
         mode = 0
+
+    blocks = math.ceil(N / 64)
+    programs = B * Q_HEADS
+
+    if programs >= 256:
+        split_k = 1
+    elif programs >= 128:
+        split_k = min(4, max(1, blocks // 16))
+    else:
+        split_k = min(16, max(1, blocks // 8))
 
     running_sum = torch.empty(
         (B, Q_HEADS, split_k),
@@ -247,6 +272,7 @@ def decode_attention(
 
     out = torch.empty_like(q)
 
+    
     grid = (
         split_k,
         B * Q_HEADS,
@@ -265,7 +291,6 @@ def decode_attention(
         SPLIT_K=split_k,
         KV_HEADS=KV_HEADS,
         SM_SCALE=1.0 / math.sqrt(HEAD_DIM),
-        BLOCK_N=block_n,
         HEAD_DIM=HEAD_DIM,
         kv_page_size=kv_page_size if kv_page_size else 1,
         indptr=kv_indptr,
