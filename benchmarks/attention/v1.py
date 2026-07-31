@@ -91,7 +91,7 @@ def print_header():
         f"{'KV':>6}"
         f"{'V1(ms)':>12}"
         f"{'V2(ms)':>12}"
-        f"{'V2/V1':>10}"
+        f"{'V1/V2':>10}"
         f"{'Torch(ms)':>12}"
         f"{'Torch/V2':>11}"
         f"{'Torch/V1':>11}"

@@ -588,7 +588,7 @@ def _flash_attentionv2_partial_kernel(
             new_max = tl.maximum(running_max, block_max,)
 
             alpha = tl.exp(running_max - new_max)
-            qk = tl.exp(qk - new_max[:, None])
+            qk = tl.exp(qk - new_max[:, None]).to(tl.float16)
 
             running_sum *= alpha
             running_sum += tl.sum(qk, axis=1)
@@ -596,13 +596,13 @@ def _flash_attentionv2_partial_kernel(
 
             if TYPE == 0 or TYPE == 1:
 
-                v = v_desc.load([block_n_int, 0]).to(tl.float32)
+                v = v_desc.load([block_n_int, 0]).to(tl.float16)
 
             elif TYPE == 2:
 
                 phys_v_pages = tl.load(v_block_table_start + logical_kv_pages,mask=k_mask_1d,other=0,)
                 v_ptrs = (v_ptr + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + kv_head * HEAD_DIM + offs_d[None, :])
-                v = tl.load(v_ptrs, mask=k_mask_1d[:, None], other=0.0,).to(tl.float32)
+                v = tl.load(v_ptrs, mask=k_mask_1d[:, None], other=0.0,).to(tl.float16)
 
             running_acc *= alpha[:, None]
             running_acc += tl.dot(qk, v)
@@ -819,14 +819,12 @@ def flash_attention_v2(
 
         N = k_block_table.shape[1] * kv_page_size
 
-    if N >= 4096:
-        split_k = 8
-    elif N >= 2048:
-        split_k = 4
-    elif N >= 1024:
-        split_k = 2
-    else:
+    NUM_SMS = torch.cuda.get_device_properties(q.device).multi_processor_count
+    programs = batch * q_heads
+    if programs > NUM_SMS:
         split_k = 1
+    else:
+        split_k = max(1, NUM_SMS // programs)
 
     BLOCK_M = 64
 

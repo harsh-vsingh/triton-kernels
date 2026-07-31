@@ -248,13 +248,12 @@ def decode_attention(
 
     blocks = math.ceil(N / 64)
     programs = B * Q_HEADS
+    num_sms = torch.cuda.get_device_properties(q.device).multi_processor_count
 
-    if programs >= 256:
+    if programs > num_sms:
         split_k = 1
-    elif programs >= 128:
-        split_k = min(4, max(1, blocks // 16))
     else:
-        split_k = min(16, max(1, blocks // 8))
+        split_k = max(1, num_sms // programs)
 
     running_sum = torch.empty(
         (B, Q_HEADS, split_k),
