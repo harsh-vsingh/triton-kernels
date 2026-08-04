@@ -1,37 +1,32 @@
+import torch
 import triton
 import triton.language as tl
-import torch
 
 
 @triton.autotune(
-    configs = [
-
+    configs=[
         triton.Config(
-            {"BLOCK_M":64,"BLOCK_N":32},
+            {"BLOCK_M": 64, "BLOCK_N": 32},
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
-            {"BLOCK_M":64,"BLOCK_N":64},
+            {"BLOCK_M": 64, "BLOCK_N": 64},
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
-            {"BLOCK_M":64,"BLOCK_N":64},
+            {"BLOCK_M": 64, "BLOCK_N": 64},
             num_warps=8,
             num_stages=2,
         ),
-
         triton.Config(
-            {"BLOCK_M":64,"BLOCK_N":128},
+            {"BLOCK_M": 64, "BLOCK_N": 128},
             num_warps=8,
             num_stages=3,
         ),
-
         triton.Config(
-            {"BLOCK_M":128,"BLOCK_N":64},
+            {"BLOCK_M": 128, "BLOCK_N": 64},
             num_warps=8,
             num_stages=3,
         ),
@@ -40,7 +35,6 @@ import torch
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
             {"BLOCK_M": 32, "BLOCK_N": 32},
             num_warps=2,
@@ -166,7 +160,7 @@ def _flash_attentionv1_kernel(
         strides=(q_stride, 1),
         block_shape=(BLOCK_M, HEAD_DIM),
     )
-    
+
     total_blk = tl.cdiv(seq_len_q, BLOCK_M)
     blk = pid0
     offs_d = tl.arange(0, HEAD_DIM)
@@ -198,20 +192,36 @@ def _flash_attentionv1_kernel(
             else:
                 mask = k_mask_1d[None, :]
 
-            if TYPE==0 or TYPE==1:
+            if TYPE == 0 or TYPE == 1:
                 k = k_desc.load([block_n_int, 0]).to(tl.float32)
                 v = v_desc.load([block_n_int, 0]).to(tl.float32)
 
-            elif TYPE==2:
+            elif TYPE == 2:
                 logical_kv_pages = k_idx // kv_page_size
                 kv_page_offs = k_idx % kv_page_size
 
-                phys_k_pages = tl.load(k_block_table_start + logical_kv_pages, mask=k_mask_1d, other=0)
-                phys_v_pages = tl.load(v_block_table_start + logical_kv_pages, mask=k_mask_1d, other=0)
-                
-                k_ptrs = k_ptr + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + (kv_head * HEAD_DIM) + offs_d[None, :]
-                v_ptrs = v_ptr + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + (kv_head * HEAD_DIM) + offs_d[None, :]
-                
+                phys_k_pages = tl.load(
+                    k_block_table_start + logical_kv_pages, mask=k_mask_1d, other=0
+                )
+                phys_v_pages = tl.load(
+                    v_block_table_start + logical_kv_pages, mask=k_mask_1d, other=0
+                )
+
+                k_ptrs = (
+                    k_ptr
+                    + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                    * (KV_HEADS * HEAD_DIM)
+                    + (kv_head * HEAD_DIM)
+                    + offs_d[None, :]
+                )
+                v_ptrs = (
+                    v_ptr
+                    + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                    * (KV_HEADS * HEAD_DIM)
+                    + (kv_head * HEAD_DIM)
+                    + offs_d[None, :]
+                )
+
                 k = tl.load(k_ptrs, mask=k_mask_1d[:, None], other=0.0).to(tl.float32)
                 v = tl.load(v_ptrs, mask=k_mask_1d[:, None], other=0.0).to(tl.float32)
 
@@ -235,6 +245,7 @@ def _flash_attentionv1_kernel(
 
         blk += programs
 
+
 def flash_attention_v1(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -256,7 +267,6 @@ def flash_attention_v1(
     ragged = (q_indptr is not None) and not paged
 
     if not ragged and not paged:
-
         assert q.ndim == 4
         assert k.ndim == 4
         assert v.ndim == 4
@@ -275,7 +285,6 @@ def flash_attention_v1(
         mode = 0
 
     elif ragged:
-
         assert q.ndim == 3
         assert k.ndim == 3
         assert v.ndim == 3
@@ -301,7 +310,6 @@ def flash_attention_v1(
         mode = 1
 
     else:
-
         assert q.ndim == 4
         assert k.ndim == 3
         assert v.ndim == 3
@@ -344,7 +352,7 @@ def flash_attention_v1(
         N=N,
         TYPE=mode,
         IS_CAUSAL=is_causal,
-        SM_SCALE=head_dim ** -0.5,
+        SM_SCALE=head_dim**-0.5,
         HEAD_DIM=head_dim,
         kv_page_size=kv_page_size if kv_page_size is not None else 1,
         q_indptr=q_indptr,
@@ -363,37 +371,31 @@ def flash_attention_v1(
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
             {"BLOCK_N": 64},
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
             {"BLOCK_N": 64},
             num_warps=8,
             num_stages=2,
         ),
-
         triton.Config(
             {"BLOCK_N": 128},
             num_warps=8,
             num_stages=3,
         ),
-
         triton.Config(
             {"BLOCK_N": 64},
             num_warps=8,
             num_stages=3,
         ),
-
         triton.Config(
             {"BLOCK_N": 64},
             num_warps=4,
             num_stages=2,
         ),
-
         triton.Config(
             {"BLOCK_N": 32},
             num_warps=2,
@@ -538,7 +540,6 @@ def _flash_attentionv2_partial_kernel(
     blk = pid0
 
     while blk < total_q_blocks:
-
         blk_m = blk * BLOCK_M
         blk_m_int = blk_m.to(tl.int32)
 
@@ -556,7 +557,6 @@ def _flash_attentionv2_partial_kernel(
             max_k_blocks = tl.cdiv(seq_len_k, BLOCK_N)
 
         for block_k in tl.range(pid2, max_k_blocks, SPLIT_K, num_stages=num_stages):
-
             block_n = block_k * BLOCK_N
             block_n_int = block_n.to(tl.int32)
 
@@ -572,20 +572,36 @@ def _flash_attentionv2_partial_kernel(
                 k = k_desc.load([block_n_int, 0]).to(tl.float16)
 
             elif TYPE == 2:
-
                 logical_kv_pages = k_idx // kv_page_size
                 kv_page_offs = k_idx % kv_page_size
 
-                phys_k_pages = tl.load(k_block_table_start + logical_kv_pages,mask=k_mask_1d,other=0,)
-                k_ptrs = (k_ptr + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + kv_head * HEAD_DIM + offs_d[None, :])
-                k = tl.load(k_ptrs, mask=k_mask_1d[:, None], other=0.0,).to(tl.float16)
+                phys_k_pages = tl.load(
+                    k_block_table_start + logical_kv_pages,
+                    mask=k_mask_1d,
+                    other=0,
+                )
+                k_ptrs = (
+                    k_ptr
+                    + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                    * (KV_HEADS * HEAD_DIM)
+                    + kv_head * HEAD_DIM
+                    + offs_d[None, :]
+                )
+                k = tl.load(
+                    k_ptrs,
+                    mask=k_mask_1d[:, None],
+                    other=0.0,
+                ).to(tl.float16)
 
             qk = tl.dot(q, tl.trans(k))
             qk *= SM_SCALE
             qk = tl.where(mask, qk, float("-inf"))
 
             block_max = tl.max(qk, axis=1)
-            new_max = tl.maximum(running_max, block_max,)
+            new_max = tl.maximum(
+                running_max,
+                block_max,
+            )
 
             alpha = tl.exp(running_max - new_max)
             qk = tl.exp(qk - new_max[:, None]).to(tl.float16)
@@ -595,26 +611,50 @@ def _flash_attentionv2_partial_kernel(
             running_max = new_max
 
             if TYPE == 0 or TYPE == 1:
-
                 v = v_desc.load([block_n_int, 0]).to(tl.float16)
 
             elif TYPE == 2:
-
-                phys_v_pages = tl.load(v_block_table_start + logical_kv_pages,mask=k_mask_1d,other=0,)
-                v_ptrs = (v_ptr + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + kv_head * HEAD_DIM + offs_d[None, :])
-                v = tl.load(v_ptrs, mask=k_mask_1d[:, None], other=0.0,).to(tl.float16)
+                phys_v_pages = tl.load(
+                    v_block_table_start + logical_kv_pages,
+                    mask=k_mask_1d,
+                    other=0,
+                )
+                v_ptrs = (
+                    v_ptr
+                    + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                    * (KV_HEADS * HEAD_DIM)
+                    + kv_head * HEAD_DIM
+                    + offs_d[None, :]
+                )
+                v = tl.load(
+                    v_ptrs,
+                    mask=k_mask_1d[:, None],
+                    other=0.0,
+                ).to(tl.float16)
 
             running_acc *= alpha[:, None]
             running_acc += tl.dot(qk, v)
 
-
         workspace = ((batch * Q_HEADS + q_head) * NUM_Q_BLOCKS + blk) * SPLIT_K + pid2
-        
-        tl.store(running_sum_ptr + workspace * BLOCK_M + tl.arange(0, BLOCK_M), running_sum,)
-        tl.store(running_max_ptr + workspace * BLOCK_M + tl.arange(0, BLOCK_M), running_max,)
-        tl.store(running_acc_ptr + workspace * BLOCK_M * HEAD_DIM + tl.arange(0, BLOCK_M)[:, None] * HEAD_DIM + offs_d[None, :], running_acc,)
+
+        tl.store(
+            running_sum_ptr + workspace * BLOCK_M + tl.arange(0, BLOCK_M),
+            running_sum,
+        )
+        tl.store(
+            running_max_ptr + workspace * BLOCK_M + tl.arange(0, BLOCK_M),
+            running_max,
+        )
+        tl.store(
+            running_acc_ptr
+            + workspace * BLOCK_M * HEAD_DIM
+            + tl.arange(0, BLOCK_M)[:, None] * HEAD_DIM
+            + offs_d[None, :],
+            running_acc,
+        )
 
         blk += tl.num_programs(0)
+
 
 @triton.jit
 def _flash_attentionv2_merge_kernel(
@@ -654,23 +694,11 @@ def _flash_attentionv2_merge_kernel(
     offs_m = tl.arange(0, BLOCK_M)
     offs_d = tl.arange(0, HEAD_DIM)
 
-    workspace = (
-        ((batch * Q_HEADS + q_head) * NUM_Q_BLOCKS + pid0)
-        * SPLIT_K
-        + tl.arange(0, SPLIT_K)
-    )
+    workspace = ((batch * Q_HEADS + q_head) * NUM_Q_BLOCKS + pid0) * SPLIT_K + tl.arange(0, SPLIT_K)
 
-    running_max = tl.load(
-        running_max_ptr
-        + workspace[:, None] * BLOCK_M
-        + offs_m[None, :]
-    )
+    running_max = tl.load(running_max_ptr + workspace[:, None] * BLOCK_M + offs_m[None, :])
 
-    running_sum = tl.load(
-        running_sum_ptr
-        + workspace[:, None] * BLOCK_M
-        + offs_m[None, :]
-    )
+    running_sum = tl.load(running_sum_ptr + workspace[:, None] * BLOCK_M + offs_m[None, :])
 
     running_acc = tl.load(
         running_acc_ptr
@@ -700,34 +728,23 @@ def _flash_attentionv2_merge_kernel(
     row_mask = rows < seq_len_q
 
     if TYPE == 0 or TYPE == 2:
-
-        out_ptr = (
-            o_ptr
-            + (batch * Q_HEADS + q_head) * M * HEAD_DIM
-        )
+        out_ptr = o_ptr + (batch * Q_HEADS + q_head) * M * HEAD_DIM
 
         tl.store(
-            out_ptr
-            + rows[:, None] * HEAD_DIM
-            + offs_d[None, :],
+            out_ptr + rows[:, None] * HEAD_DIM + offs_d[None, :],
             output,
             mask=row_mask[:, None],
         )
 
     else:
-
-        out_ptr = (
-            o_ptr
-            + (q_start * Q_HEADS + q_head) * HEAD_DIM
-        )
+        out_ptr = o_ptr + (q_start * Q_HEADS + q_head) * HEAD_DIM
 
         tl.store(
-            out_ptr
-            + rows[:, None] * Q_HEADS * HEAD_DIM
-            + offs_d[None, :],
+            out_ptr + rows[:, None] * Q_HEADS * HEAD_DIM + offs_d[None, :],
             output,
             mask=row_mask[:, None],
         )
+
 
 def flash_attention_v2(
     q: torch.Tensor,
@@ -750,7 +767,6 @@ def flash_attention_v2(
     ragged = (q_indptr is not None) and not paged
 
     if not ragged and not paged:
-
         assert q.ndim == 4
         assert k.ndim == 4
         assert v.ndim == 4
@@ -769,7 +785,6 @@ def flash_attention_v2(
         mode = 0
 
     elif ragged:
-
         assert q.ndim == 3
         assert k.ndim == 3
         assert v.ndim == 3
@@ -795,7 +810,6 @@ def flash_attention_v2(
         mode = 1
 
     else:
-
         assert q.ndim == 4
         assert k.ndim == 3
         assert v.ndim == 3
@@ -880,7 +894,7 @@ def flash_attention_v2(
         TYPE=mode,
         IS_CAUSAL=is_causal,
         SPLIT_K=split_k,
-        SM_SCALE=head_dim ** -0.5,
+        SM_SCALE=head_dim**-0.5,
         HEAD_DIM=head_dim,
         BLOCK_M=BLOCK_M,
         kv_page_size=kv_page_size if kv_page_size is not None else 1,

@@ -1,18 +1,22 @@
 import torch
 import triton
 import triton.language as tl
-from  utils import validate_reduction
+
+from utils import validate_reduction
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 NUM_SMS = torch.cuda.get_device_properties(DEVICE).multi_processor_count
 
+SMALL_THRESHOLD = 1024
+MEDIUM_ROW_THRESHOLD = NUM_SMS
+MEDIUM_COL_THRESHOLD = 4096
+BLOCK_SIZE = 1024
+NUM_STAGES = 2
+NUM_WARPS = 4
+
+
 @triton.jit
-def _softmax_kernel_small(
-    x_ptr, 
-    out_ptr,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr
-):
+def _softmax_kernel_small(x_ptr, out_ptr, n_cols, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(0)
     row_start = pid * n_cols
     offset_range = tl.arange(0, BLOCK_SIZE)
@@ -25,13 +29,10 @@ def _softmax_kernel_small(
     x = x / x_sum
     tl.store(out_ptr + offsets, x, mask=mask)
 
+
 @triton.jit
 def _softmax_kernel_medium(
-    x_ptr,
-    out_ptr,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    x_ptr, out_ptr, n_cols, BLOCK_SIZE: tl.constexpr, num_stages: tl.constexpr
 ):
     pid = tl.program_id(0)
     row_start = pid * n_cols
@@ -46,7 +47,9 @@ def _softmax_kernel_medium(
 
         block_max = tl.max(x, axis=0)
         new_max = tl.maximum(running_max, block_max)
-        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(tl.exp(x - new_max), axis=0)
+        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(
+            tl.exp(x - new_max), axis=0
+        )
         running_max = new_max
 
     for col_idx in tl.range(0, n_cols, BLOCK_SIZE, num_stages=num_stages):
@@ -58,6 +61,7 @@ def _softmax_kernel_medium(
         x = x / running_sum
         tl.store(out_ptr + offsets, x, mask=mask)
 
+
 @triton.jit
 def _softmax_kernel_partial(
     x_ptr,
@@ -67,7 +71,7 @@ def _softmax_kernel_partial(
     programs_per_row,
     chunks_per_row,
     BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    num_stages: tl.constexpr,
 ):
     pid = tl.program_id(0)
     row_id = pid // programs_per_row
@@ -84,10 +88,13 @@ def _softmax_kernel_partial(
 
         block_max = tl.max(x, axis=0)
         new_max = tl.maximum(running_max, block_max)
-        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(tl.exp(x - new_max), axis=0)
+        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(
+            tl.exp(x - new_max), axis=0
+        )
         running_max = new_max
     tl.store(running_sum_ptr + pid, running_sum)
     tl.store(running_max_ptr + pid, running_max)
+
 
 @triton.jit
 def _softmax_kernel_merge(
@@ -111,6 +118,7 @@ def _softmax_kernel_merge(
     tl.store(max_ptr + pid, max_val)
     tl.store(sum_ptr + pid, sum_val)
 
+
 @triton.jit
 def _softmax_kernel_finalize(
     x_ptr,
@@ -121,7 +129,7 @@ def _softmax_kernel_finalize(
     programs_per_row,
     chunks_per_row,
     BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    num_stages: tl.constexpr,
 ):
     pid = tl.program_id(0)
     row_id = pid // programs_per_row
@@ -140,7 +148,8 @@ def _softmax_kernel_finalize(
         x = tl.exp(x - max_val)
         x = x / sum_val
         tl.store(out_ptr + offsets, x, mask=mask)
-    
+
+
 def softmax(
     x: torch.Tensor,
     out: torch.Tensor = None,
@@ -150,13 +159,6 @@ def softmax(
     Assumes contiguous CUDA tensor of any shape and dtype.
     """
     validate_reduction(x)
-
-    SMALL_THRESHOLD = 1024
-    MEDIUM_ROW_THRESHOLD = NUM_SMS
-    MEDIUM_COL_THRESHOLD = 4096
-    BLOCK_SIZE = 1024
-    NUM_STAGES = 2
-    NUM_WARPS = 4
 
     n_rows = x.numel() // x.shape[-1]
     n_cols = x.shape[-1]
@@ -175,7 +177,6 @@ def softmax(
         )
 
     elif n_rows >= MEDIUM_ROW_THRESHOLD or n_cols <= MEDIUM_COL_THRESHOLD:
-
         _softmax_kernel_medium[(n_rows,)](
             x,
             out,
@@ -246,12 +247,7 @@ def softmax(
 
 
 @triton.jit
-def _logsoftmax_kernel_small(
-    x_ptr, 
-    out_ptr,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr
-):
+def _logsoftmax_kernel_small(x_ptr, out_ptr, n_cols, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(0)
     row_start = pid * n_cols
     offset_range = tl.arange(0, BLOCK_SIZE)
@@ -263,13 +259,10 @@ def _logsoftmax_kernel_small(
     out = x - log_denom
     tl.store(out_ptr + offsets, out, mask=mask)
 
+
 @triton.jit
 def _logsoftmax_kernel_medium(
-    x_ptr,
-    out_ptr,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    x_ptr, out_ptr, n_cols, BLOCK_SIZE: tl.constexpr, num_stages: tl.constexpr
 ):
     pid = tl.program_id(0)
     row_start = pid * n_cols
@@ -284,16 +277,19 @@ def _logsoftmax_kernel_medium(
 
         block_max = tl.max(x, axis=0)
         new_max = tl.maximum(running_max, block_max)
-        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(tl.exp(x - new_max), axis=0)
+        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(
+            tl.exp(x - new_max), axis=0
+        )
         running_max = new_max
 
-    log_denom = running_max +tl.log(running_sum)
+    log_denom = running_max + tl.log(running_sum)
     for col_idx in tl.range(0, n_cols, BLOCK_SIZE, num_stages=num_stages):
         offsets = row_start + col_idx + offset_range
         mask = offset_range + col_idx < n_cols
         x = tl.load(x_ptr + offsets, mask=mask, other=float("-inf")).to(tl.float32)
         x = x - log_denom
         tl.store(out_ptr + offsets, x, mask=mask)
+
 
 @triton.jit
 def _logsoftmax_kernel_partial(
@@ -304,7 +300,7 @@ def _logsoftmax_kernel_partial(
     programs_per_row,
     chunks_per_row,
     BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    num_stages: tl.constexpr,
 ):
     pid = tl.program_id(0)
     row_id = pid // programs_per_row
@@ -321,10 +317,13 @@ def _logsoftmax_kernel_partial(
 
         block_max = tl.max(x, axis=0)
         new_max = tl.maximum(running_max, block_max)
-        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(tl.exp(x - new_max), axis=0)
+        running_sum = running_sum * tl.exp(running_max - new_max) + tl.sum(
+            tl.exp(x - new_max), axis=0
+        )
         running_max = new_max
     tl.store(running_sum_ptr + pid, running_sum)
     tl.store(running_max_ptr + pid, running_max)
+
 
 @triton.jit
 def _logsoftmax_kernel_merge(
@@ -347,6 +346,7 @@ def _logsoftmax_kernel_merge(
     log_denom = max_val + tl.log(sum_val)
     tl.store(log_denom_ptr + pid, log_denom)
 
+
 @triton.jit
 def _logsoftmax_kernel_finalize(
     x_ptr,
@@ -356,7 +356,7 @@ def _logsoftmax_kernel_finalize(
     programs_per_row,
     chunks_per_row,
     BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr
+    num_stages: tl.constexpr,
 ):
     pid = tl.program_id(0)
     row_id = pid // programs_per_row
@@ -373,7 +373,8 @@ def _logsoftmax_kernel_finalize(
 
         x = x - log_denom
         tl.store(out_ptr + offsets, x, mask=mask)
-    
+
+
 def log_softmax(
     x: torch.Tensor,
     out: torch.Tensor = None,
@@ -383,13 +384,6 @@ def log_softmax(
     Assumes contiguous CUDA tensor of any shape and dtype.
     """
     validate_reduction(x)
-
-    SMALL_THRESHOLD = 1024
-    MEDIUM_ROW_THRESHOLD = NUM_SMS
-    MEDIUM_COL_THRESHOLD = 4096
-    BLOCK_SIZE = 1024
-    NUM_STAGES = 2
-    NUM_WARPS = 4
 
     n_rows = x.numel() // x.shape[-1]
     n_cols = x.shape[-1]
@@ -408,7 +402,6 @@ def log_softmax(
         )
 
     elif n_rows >= MEDIUM_ROW_THRESHOLD or n_cols <= MEDIUM_COL_THRESHOLD:
-
         _logsoftmax_kernel_medium[(n_rows,)](
             x,
             out,
@@ -421,7 +414,6 @@ def log_softmax(
     else:
         chunks_per_row = triton.cdiv(n_cols, BLOCK_SIZE)
         programs_per_row = min(chunks_per_row, max(1, NUM_SMS // n_rows))
-
 
         partial_sum = torch.empty(
             n_rows * programs_per_row,

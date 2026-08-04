@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from kernels import layernorm, rms_norm, residual_layernorm
+from kernels import layernorm, residual_layernorm, rms_norm
 
 DEVICE = "cuda"
 
@@ -31,12 +31,22 @@ def bytes_rmsnorm(x, gamma, out):
         + out.numel() * out.element_size()
     )
 
+
 def bytes_residual_layernorm(x, residual, gamma, beta, out):
     return (
         x.numel() * x.element_size()
         + residual.numel() * residual.element_size()
         + gamma.numel() * gamma.element_size()
         + beta.numel() * beta.element_size()
+        + out.numel() * out.element_size()
+    )
+
+
+def bytes_residual_rmsnorm(x, residual, gamma, out):
+    return (
+        x.numel() * x.element_size()
+        + residual.numel() * residual.element_size()
+        + gamma.numel() * gamma.element_size()
         + out.numel() * out.element_size()
     )
 
@@ -93,20 +103,16 @@ def main():
         (512, 1024),
         (2048, 2048),
         (4096, 4096),
-
         # Large kernel
         (1, 32768),
         (2, 32768),
         (8, 32768),
         (16, 32768),
-
         (1, 65536),
         (2, 65536),
         (8, 65536),
-
         (1, 131072),
     ]
-    
 
     eps = 1e-5
 
@@ -151,6 +157,19 @@ def main():
                 ),
                 (x, gamma),
                 bytes_rmsnorm,
+            )
+
+            benchmark(
+                "residual rmsnorm",
+                lambda x, r, g: rms_norm(x, g, eps, residual=r),
+                lambda x, r, g: F.rms_norm(
+                    x + r,
+                    (hidden_dim,),
+                    weight=g,
+                    eps=eps,
+                ),
+                (x, residual, gamma),
+                bytes_residual_rmsnorm,
             )
 
             benchmark(

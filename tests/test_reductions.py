@@ -2,12 +2,12 @@ import pytest
 import torch
 
 from kernels import (
-    sum,
-    mean,
-    max,
-    min,
     argmax,
     argmin,
+    max,
+    mean,
+    min,
+    sum,
 )
 
 DEVICE = "cuda"
@@ -26,7 +26,7 @@ REDUCTION_SHAPES = [
     (32, 2048),
     (4, 8, 128),
     (2, 4, 16, 64),
-    (4, 10000)
+    (4, 10000),
 ]
 
 DTYPES = [

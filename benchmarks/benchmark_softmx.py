@@ -2,8 +2,8 @@ import torch
 import torch.nn.functional as F
 
 from kernels import (
-    softmax,
     log_softmax,
+    softmax,
 )
 
 DEVICE = "cuda"
@@ -19,10 +19,7 @@ ITERS = 100
 
 
 def bytes_softmax(x, out):
-    return (
-        x.numel() * x.element_size()
-        + out.numel() * out.element_size()
-    )
+    return x.numel() * x.element_size() + out.numel() * out.element_size()
 
 
 def benchmark(name, fn, ref_fn, args, bytes_fn):
@@ -77,16 +74,13 @@ def main():
         (512, 1024),
         (2048, 2048),
         (4096, 4096),
-
         (1, 32768),
         (2, 32768),
         (8, 32768),
         (16, 32768),
-
         (1, 65536),
         (2, 65536),
         (8, 65536),
-
         (1, 131072),
     ]
 

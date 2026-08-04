@@ -5,8 +5,8 @@ from kernels import (
     add,
     add_and_relu,
     bias_and_gelu,
-    silu_mult,
     bias_silu_mult,
+    swiglu,
 )
 
 DEVICE = "cuda"
@@ -131,8 +131,8 @@ def main():
             )
 
             benchmark(
-                "silu_mul",
-                silu_mult,
+                "swiglu",
+                swiglu,
                 lambda a, b: F.silu(a) * b,
                 (x, mult),
             )

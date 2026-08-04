@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 
@@ -12,18 +14,19 @@ DTYPES = [
     torch.bfloat16,
 ]
 
-import math
 
 BASE_TOL = {
-    torch.float16:  dict(base_atol=2e-2, rtol=1e-2, eps=5e-3),
+    torch.float16: dict(base_atol=2e-2, rtol=1e-2, eps=5e-3),
     torch.bfloat16: dict(base_atol=4e-2, rtol=2e-2, eps=1e-2),
-    torch.float32:  dict(base_atol=2.5e-3, rtol=2e-2, eps=5e-3),
+    torch.float32: dict(base_atol=2.5e-3, rtol=2e-2, eps=5e-3),
 }
+
 
 def gemm_tolerances(dtype, K):
     cfg = BASE_TOL[dtype]
     atol = cfg["base_atol"] * math.sqrt(max(K, 1)) + cfg["eps"]
     return dict(atol=atol, rtol=cfg["rtol"])
+
 
 GEMM_SHAPES = [
     (1, 1, 1),

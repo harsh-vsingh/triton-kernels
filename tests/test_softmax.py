@@ -3,8 +3,8 @@ import torch
 import torch.nn.functional as F
 
 from kernels import (
-    softmax,
     log_softmax,
+    softmax,
 )
 
 DEVICE = "cuda"
@@ -20,14 +20,12 @@ SHAPES = [
     (1024,),
     (512,),
     (32, 1024),
-
     # Medium
     (4096,),
     (64, 2048),
     (128, 4096),
     (16, 1025),
     (8, 3072),
-
     # Large
     (1, 32768),
     (2, 32768),
@@ -35,7 +33,6 @@ SHAPES = [
     (8, 32768),
     (1, 65536),
     (1, 131072),
-
     # Higher dimensional
     (8, 16, 1024),
     (4, 8, 32, 1024),

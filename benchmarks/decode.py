@@ -72,10 +72,7 @@ def allocate_paged_cache(tensors, lengths, kv_heads, head_dim, page_size):
             start = logical * page_size
             end = min(start + page_size, lengths[b])
 
-            cache[
-                current * page_size:
-                current * page_size + (end - start)
-            ] = tensors[b][start:end]
+            cache[current * page_size : current * page_size + (end - start)] = tensors[b][start:end]
 
             current += 1
 
@@ -104,9 +101,7 @@ def benchmark_dense(dtype, qh, kvh, N):
     )
     torch.cuda.synchronize()
 
-    triton_ms = triton.testing.do_bench(
-        lambda: decode_attention(q, k, v)
-    )
+    triton_ms = triton.testing.do_bench(lambda: decode_attention(q, k, v))
 
     torch_ms = triton.testing.do_bench(
         lambda: F.scaled_dot_product_attention(
@@ -124,15 +119,9 @@ def benchmark_ragged(dtype, qh, kvh, N):
 
     q = torch.randn((BATCH, qh, HEAD_DIM), device=DEVICE, dtype=dtype)
 
-    ks = [
-        torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype)
-        for _ in range(BATCH)
-    ]
+    ks = [torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype) for _ in range(BATCH)]
 
-    vs = [
-        torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype)
-        for _ in range(BATCH)
-    ]
+    vs = [torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype) for _ in range(BATCH)]
 
     k = torch.cat(ks, dim=0)
     v = torch.cat(vs, dim=0)
@@ -166,7 +155,6 @@ def benchmark_ragged(dtype, qh, kvh, N):
     def reference():
 
         for b in range(BATCH):
-
             F.scaled_dot_product_attention(
                 q[b].unsqueeze(0).unsqueeze(2),
                 ks[b].transpose(0, 1).unsqueeze(0),
@@ -185,15 +173,9 @@ def benchmark_paged(dtype, qh, kvh, N):
 
     q = torch.randn((BATCH, qh, HEAD_DIM), device=DEVICE, dtype=dtype)
 
-    ks = [
-        torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype)
-        for _ in range(BATCH)
-    ]
+    ks = [torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype) for _ in range(BATCH)]
 
-    vs = [
-        torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype)
-        for _ in range(BATCH)
-    ]
+    vs = [torch.randn((N, kvh, HEAD_DIM), device=DEVICE, dtype=dtype) for _ in range(BATCH)]
 
     k_cache, k_table = allocate_paged_cache(
         ks,
@@ -244,7 +226,6 @@ def benchmark_paged(dtype, qh, kvh, N):
     def reference():
 
         for b in range(BATCH):
-
             F.scaled_dot_product_attention(
                 q[b].unsqueeze(0).unsqueeze(2),
                 ks[b].transpose(0, 1).unsqueeze(0),
@@ -258,7 +239,6 @@ def benchmark_paged(dtype, qh, kvh, N):
 
 
 if __name__ == "__main__":
-
     print(
         f"{'Layout':8}"
         f"{'Topology':8}"
@@ -270,13 +250,9 @@ if __name__ == "__main__":
     )
 
     for layout in LAYOUTS:
-
         for topo, qh, kvh in TOPOLOGIES:
-
             for dtype in DTYPES:
-
                 for N in SEQ_LENS:
-
                     if layout == "dense":
                         t_ms, p_ms = benchmark_dense(dtype, qh, kvh, N)
 

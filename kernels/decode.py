@@ -1,23 +1,22 @@
-import triton
-import triton.language as tl
-import torch
 import math
 
+import torch
+import triton
+import triton.language as tl
+
+
 @triton.autotune(
-configs = [
-    triton.Config({"BLOCK_N": 32},  num_warps=2, num_stages=1),
-    triton.Config({"BLOCK_N": 32},  num_warps=2, num_stages=2),
-
-    triton.Config({"BLOCK_N": 64},  num_warps=2, num_stages=2),
-    triton.Config({"BLOCK_N": 64},  num_warps=4, num_stages=2),
-
-    triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_N": 128}, num_warps=8, num_stages=2),
-
-    triton.Config({"BLOCK_N": 256}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_N": 256}, num_warps=8, num_stages=2),
-],
+    configs=[
+        triton.Config({"BLOCK_N": 32}, num_warps=2, num_stages=1),
+        triton.Config({"BLOCK_N": 32}, num_warps=2, num_stages=2),
+        triton.Config({"BLOCK_N": 64}, num_warps=2, num_stages=2),
+        triton.Config({"BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=3),
+        triton.Config({"BLOCK_N": 128}, num_warps=8, num_stages=2),
+        triton.Config({"BLOCK_N": 256}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 256}, num_warps=8, num_stages=2),
+    ],
     key=["N", "TYPE", "kv_page_size"],
 )
 @triton.jit
@@ -50,8 +49,8 @@ def _decode_split_kernel(
 
     if TYPE == 0:
         q_ptr += (batch * Q_HEADS + q_head) * HEAD_DIM
-        k_ptr += (batch * N * KV_HEADS + kv_head) * HEAD_DIM
-        v_ptr += (batch * N * KV_HEADS + kv_head) * HEAD_DIM
+        k_ptr += (batch * KV_HEADS + kv_head) * N * HEAD_DIM
+        v_ptr += (batch * KV_HEADS + kv_head) * N * HEAD_DIM
 
         seq_len = N
 
@@ -60,7 +59,7 @@ def _decode_split_kernel(
         end = tl.load(indptr + batch + 1)
         length = end - start
 
-        q_ptr += (batch * Q_HEADS + q_head) * HEAD_DIM        
+        q_ptr += (batch * Q_HEADS + q_head) * HEAD_DIM
         k_ptr += (start * KV_HEADS + kv_head) * HEAD_DIM
         v_ptr += (start * KV_HEADS + kv_head) * HEAD_DIM
 
@@ -92,7 +91,20 @@ def _decode_split_kernel(
         offs_n = blk_n + tl.arange(0, BLOCK_N)
         mask = offs_n < seq_len
 
-        if TYPE == 0 or TYPE == 1:
+        if TYPE == 0:
+            k = tl.load(
+                k_ptr + offs_n[:, None] * HEAD_DIM + offs_d[None, :],
+                mask=mask[:, None],
+                other=0.0,
+            ).to(tl.float32)
+
+            v = tl.load(
+                v_ptr + offs_n[:, None] * HEAD_DIM + offs_d[None, :],
+                mask=mask[:, None],
+                other=0.0,
+            ).to(tl.float32)
+
+        elif TYPE == 1:
             tmp = offs_n[:, None] * (KV_HEADS * HEAD_DIM) + offs_d[None, :]
             k = tl.load(
                 k_ptr + tmp,
@@ -113,8 +125,20 @@ def _decode_split_kernel(
             phys_k_pages = tl.load(k_block_table_start + logical_kv_pages, mask=mask, other=0)
             phys_v_pages = tl.load(v_block_table_start + logical_kv_pages, mask=mask, other=0)
 
-            k_ptrs = k_ptr + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + (kv_head * HEAD_DIM) + offs_d[None, :]
-            v_ptrs = v_ptr + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None]) * (KV_HEADS * HEAD_DIM) + (kv_head * HEAD_DIM) + offs_d[None, :]
+            k_ptrs = (
+                k_ptr
+                + (phys_k_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                * (KV_HEADS * HEAD_DIM)
+                + (kv_head * HEAD_DIM)
+                + offs_d[None, :]
+            )
+            v_ptrs = (
+                v_ptr
+                + (phys_v_pages[:, None] * kv_page_size + kv_page_offs[:, None])
+                * (KV_HEADS * HEAD_DIM)
+                + (kv_head * HEAD_DIM)
+                + offs_d[None, :]
+            )
 
             k = tl.load(k_ptrs, mask=mask[:, None], other=0.0).to(tl.float32)
             v = tl.load(v_ptrs, mask=mask[:, None], other=0.0).to(tl.float32)
@@ -130,10 +154,7 @@ def _decode_split_kernel(
         alpha = tl.exp(running_max - new_max)
         weights = tl.exp(qk - new_max)
 
-        running_acc = (
-            running_acc * alpha +
-            tl.sum(weights[:, None] * v, axis=0)
-        )
+        running_acc = running_acc * alpha + tl.sum(weights[:, None] * v, axis=0)
 
         running_sum = running_sum * alpha + tl.sum(weights)
         running_max = new_max
@@ -145,6 +166,7 @@ def _decode_split_kernel(
     tl.store(running_sum_ptr + workspace, running_sum)
     tl.store(running_max_ptr + workspace, running_max)
     tl.store(running_acc_ptr + workspace * HEAD_DIM + offs_d, running_acc)
+
 
 @triton.jit
 def _decode_merge_kernel(
@@ -160,7 +182,7 @@ def _decode_merge_kernel(
 
     batch = pid0 // Q_HEADS
     q_head = pid0 % Q_HEADS
-    
+
     workspace = (batch * Q_HEADS + q_head) * SPLIT_K + tl.arange(0, SPLIT_K)
 
     running_max = tl.load(running_max_ptr + workspace)
@@ -176,6 +198,7 @@ def _decode_merge_kernel(
 
     offs_d = tl.arange(0, HEAD_DIM)
     tl.store(o_ptr + (batch * Q_HEADS + q_head) * HEAD_DIM + offs_d, output)
+
 
 def decode_attention(
     q: torch.Tensor,
@@ -220,7 +243,9 @@ def decode_attention(
     if paged:
         assert k_block_table is not None and v_block_table is not None
         assert kv_page_size is not None
-        assert kv_indptr is not None, "kv_indptr (sequence context lengths) must be provided for paged mode."
+        assert kv_indptr is not None, (
+            "kv_indptr (sequence context lengths) must be provided for paged mode."
+        )
 
         B, Q_HEADS, HEAD_DIM = q.shape
         KV_HEADS = k.shape[2] if k.ndim == 4 else k.shape[1]
@@ -241,9 +266,6 @@ def decode_attention(
     else:
         B, Q_HEADS, HEAD_DIM = q.shape
         _, KV_HEADS, N, _ = k.shape
-
-        k = k.permute(0, 2, 1, 3).contiguous()
-        v = v.permute(0, 2, 1, 3).contiguous()
         mode = 0
 
     blocks = math.ceil(N / 64)
@@ -253,7 +275,7 @@ def decode_attention(
     if programs > num_sms:
         split_k = 1
     else:
-        split_k = max(1, num_sms // programs)
+        split_k = min(max(1, num_sms // programs), max(1, blocks // 64))
 
     running_sum = torch.empty(
         (B, Q_HEADS, split_k),
@@ -271,7 +293,6 @@ def decode_attention(
 
     out = torch.empty_like(q)
 
-    
     grid = (
         split_k,
         B * Q_HEADS,

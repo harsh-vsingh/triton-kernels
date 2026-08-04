@@ -114,7 +114,6 @@ def print_row(
 
     mask = "causal" if causal else "full"
 
-
     print(
         f"{layout:<8}"
         f"{attn_type:<8}"
@@ -130,6 +129,7 @@ def print_row(
         f"{torch_ms / v2_ms:10.2f}x",
         f"{torch_ms / v1_ms:10.2f}x",
     )
+
 
 def benchmark_dense(
     kernel,
@@ -163,7 +163,6 @@ def benchmark_dense(
 
     v = torch.randn_like(k)
 
-
     def torch_call():
         return F.scaled_dot_product_attention(
             q,
@@ -172,7 +171,6 @@ def benchmark_dense(
             is_causal=causal,
             enable_gqa=(q_heads != kv_heads),
         )
-
 
     # Warmup
     kernel(
@@ -262,7 +260,6 @@ def _dense_pad_and_mask_reference(qs, ks, vs, q_heads, kv_heads, causal, dtype):
             is_causal=False,  # causal already baked into attn_mask
         )
 
-
     return torch_call
 
 
@@ -281,7 +278,6 @@ def _naive_loop_reference(qs, ks, vs, q_heads, kv_heads, causal):
                 is_causal=causal,
                 enable_gqa=(q_heads != kv_heads),
             )
-
 
     return torch_call
 
@@ -331,9 +327,7 @@ def benchmark_ragged(
             kv_indptr=kv_indptr,
         )
 
-    fair_call = _dense_pad_and_mask_reference(
-        qs, ks, vs, q_heads, kv_heads, causal, dtype
-    )
+    fair_call = _dense_pad_and_mask_reference(qs, ks, vs, q_heads, kv_heads, causal, dtype)
 
     # Warmup
     triton_call()
@@ -392,14 +386,12 @@ def build_paged_cache(
     next_page = 0
 
     for seq in seqs:
-
         n = seq.shape[0]
         num_pages = math.ceil(n / page_size)
 
         table = []
 
         for page in range(num_pages):
-
             start = page * page_size
             end = min(start + page_size, n)
 
@@ -471,9 +463,7 @@ def benchmark_paged(
             kv_page_size=PAGE_SIZE,
         )
 
-    fair_call = _dense_pad_and_mask_reference(
-        qs, ks, vs, q_heads, kv_heads, causal, dtype
-    )
+    fair_call = _dense_pad_and_mask_reference(qs, ks, vs, q_heads, kv_heads, causal, dtype)
 
     # Warmup
     triton_call()
@@ -499,113 +489,104 @@ def main():
     print_header()
 
     for layout in LAYOUTS:
-
         for attention_type in ATTENTION_TYPES:
-
             cross = attention_type == "cross"
 
             for topology, (q_heads, kv_heads) in TOPOLOGIES.items():
-
                 for dtype in DTYPES:
-
                     for causal in CAUSAL:
-
                         for q_len in Q_LENS:
-
                             if cross:
                                 kv_lengths = KV_LENS
                             else:
                                 kv_lengths = [q_len]
 
                             for kv_len in kv_lengths:
+                                if causal and q_len > kv_len:
+                                    continue
 
-                                    if causal and q_len > kv_len:
-                                        continue
-
-                                    if layout == "dense":
-                                        v1_ms, torch_ms, torch_native_ms = benchmark_dense(
-                                            kernel=KERNELS.get("v1"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-                                    
-                                        v2_ms, torch_ms, torch_naive_ms = benchmark_dense(
-                                            kernel=KERNELS.get("v2"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-
-                                    elif layout == "ragged":
-
-                                        v1_ms, torch_ms, torch_naive_ms = benchmark_ragged(
-                                            kernel=KERNELS.get("v1"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-
-                                        v2_ms, torch_ms, torch_naive_ms = benchmark_ragged(
-                                            kernel=KERNELS.get("v2"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-
-                                    else:
-
-                                        v1_ms, torch_ms, torch_naive_ms = benchmark_paged(
-                                            kernel=KERNELS.get("v1"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-
-                                        v2_ms, torch_ms, torch_naive_ms = benchmark_paged(
-                                            kernel=KERNELS.get("v2"),
-                                            dtype=dtype,
-                                            q_heads=q_heads,
-                                            kv_heads=kv_heads,
-                                            q_len=q_len,
-                                            kv_len=kv_len,
-                                            causal=causal,
-                                            cross=cross,
-                                        )
-
-                                    print_row(
-                                        layout=layout,
-                                        attn_type=attention_type,
-                                        topology=topology,
-                                        causal=causal,
+                                if layout == "dense":
+                                    v1_ms, torch_ms, torch_native_ms = benchmark_dense(
+                                        kernel=KERNELS.get("v1"),
                                         dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
                                         q_len=q_len,
                                         kv_len=kv_len,
-                                        v1_ms=v1_ms,
-                                        v2_ms=v2_ms,
-                                        torch_ms=torch_ms,
-                                        torch_naive_ms=torch_naive_ms,
+                                        causal=causal,
+                                        cross=cross,
                                     )
+
+                                    v2_ms, torch_ms, torch_naive_ms = benchmark_dense(
+                                        kernel=KERNELS.get("v2"),
+                                        dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
+                                        q_len=q_len,
+                                        kv_len=kv_len,
+                                        causal=causal,
+                                        cross=cross,
+                                    )
+
+                                elif layout == "ragged":
+                                    v1_ms, torch_ms, torch_naive_ms = benchmark_ragged(
+                                        kernel=KERNELS.get("v1"),
+                                        dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
+                                        q_len=q_len,
+                                        kv_len=kv_len,
+                                        causal=causal,
+                                        cross=cross,
+                                    )
+
+                                    v2_ms, torch_ms, torch_naive_ms = benchmark_ragged(
+                                        kernel=KERNELS.get("v2"),
+                                        dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
+                                        q_len=q_len,
+                                        kv_len=kv_len,
+                                        causal=causal,
+                                        cross=cross,
+                                    )
+
+                                else:
+                                    v1_ms, torch_ms, torch_naive_ms = benchmark_paged(
+                                        kernel=KERNELS.get("v1"),
+                                        dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
+                                        q_len=q_len,
+                                        kv_len=kv_len,
+                                        causal=causal,
+                                        cross=cross,
+                                    )
+
+                                    v2_ms, torch_ms, torch_naive_ms = benchmark_paged(
+                                        kernel=KERNELS.get("v2"),
+                                        dtype=dtype,
+                                        q_heads=q_heads,
+                                        kv_heads=kv_heads,
+                                        q_len=q_len,
+                                        kv_len=kv_len,
+                                        causal=causal,
+                                        cross=cross,
+                                    )
+
+                                print_row(
+                                    layout=layout,
+                                    attn_type=attention_type,
+                                    topology=topology,
+                                    causal=causal,
+                                    dtype=dtype,
+                                    q_len=q_len,
+                                    kv_len=kv_len,
+                                    v1_ms=v1_ms,
+                                    v2_ms=v2_ms,
+                                    torch_ms=torch_ms,
+                                    torch_naive_ms=torch_naive_ms,
+                                )
 
 
 if __name__ == "__main__":

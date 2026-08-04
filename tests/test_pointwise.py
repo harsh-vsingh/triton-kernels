@@ -6,8 +6,8 @@ from kernels import (
     add,
     add_and_relu,
     bias_and_gelu,
-    silu_mult,
     bias_silu_mult,
+    swiglu,
 )
 
 DEVICE = "cuda"
@@ -31,7 +31,7 @@ POINTWISE_SHAPES = [
     (128, 512),
     (4, 8, 128),
     (2, 4, 16, 64),
-    (3, 10000)
+    (3, 10000),
 ]
 
 BROADCAST_SHAPES = [
@@ -197,11 +197,11 @@ def test_bias_and_gelu_broadcast_inplace(shape, dtype):
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_silu_mult(shape, dtype):
+def test_swiglu(shape, dtype):
     x = torch.randn(shape, device=DEVICE, dtype=dtype)
     mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
-    out = silu_mult(x, mult)
+    out = swiglu(x, mult)
 
     ref = F.silu(x) * mult
     torch.testing.assert_close(out, ref)
@@ -209,12 +209,12 @@ def test_silu_mult(shape, dtype):
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_silu_mult_out(shape, dtype):
+def test_swiglu_out(shape, dtype):
     x = torch.randn(shape, device=DEVICE, dtype=dtype)
     mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     out = torch.empty_like(x)
-    ret = silu_mult(x, mult, out=out)
+    ret = swiglu(x, mult, out=out)
 
     assert ret.data_ptr() == out.data_ptr()
     ref = F.silu(x) * mult
@@ -223,12 +223,12 @@ def test_silu_mult_out(shape, dtype):
 
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_silu_mult_inplace(shape, dtype):
+def test_swiglu_inplace(shape, dtype):
     x = torch.randn(shape, device=DEVICE, dtype=dtype)
     mult = torch.randn(shape, device=DEVICE, dtype=dtype)
 
     ref = F.silu(x) * mult
-    ret = silu_mult(x, mult, out=x)
+    ret = swiglu(x, mult, out=x)
 
     assert ret.data_ptr() == x.data_ptr()
     torch.testing.assert_close(x, ref)
