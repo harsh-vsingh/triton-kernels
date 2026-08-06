@@ -24,6 +24,8 @@ from .softmax import (
     softmax,
 )
 
+from .decode import decode_attention
+
 __all__ = [
     "add",
     "add_and_relu",
@@ -45,4 +47,5 @@ __all__ = [
     "flash_attention_v1",
     "flash_attention_v2",
     "speculative_decode_attention",
+    "decode_attention"
 ]

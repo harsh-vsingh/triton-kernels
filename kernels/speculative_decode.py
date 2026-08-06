@@ -8,14 +8,14 @@ import triton.language as tl
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_N": 32}, num_warps=2, num_stages=1),
-        # triton.Config({"BLOCK_N": 32}, num_warps=2, num_stages=2),
-        # triton.Config({"BLOCK_N": 64}, num_warps=2, num_stages=2),
-        # triton.Config({"BLOCK_N": 64}, num_warps=4, num_stages=2),
-        # triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=2),
-        # triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=3),
-        # triton.Config({"BLOCK_N": 128}, num_warps=8, num_stages=2),
-        # triton.Config({"BLOCK_N": 256}, num_warps=4, num_stages=2),
-        # triton.Config({"BLOCK_N": 256}, num_warps=8, num_stages=2),
+        triton.Config({"BLOCK_N": 32}, num_warps=2, num_stages=2),
+        triton.Config({"BLOCK_N": 64}, num_warps=2, num_stages=2),
+        triton.Config({"BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 128}, num_warps=4, num_stages=3),
+        triton.Config({"BLOCK_N": 128}, num_warps=8, num_stages=2),
+        triton.Config({"BLOCK_N": 256}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_N": 256}, num_warps=8, num_stages=2),
     ],
     key=["N", "TYPE", "kv_page_size"],
 )
@@ -150,8 +150,7 @@ def _speculative_decode_split_kernel(
             k = tl.load(k_ptrs, mask=mask[:, None], other=0.0).to(tl.float32)
             v = tl.load(v_ptrs, mask=mask[:, None], other=0.0).to(tl.float32)
 
-        qk = tl.sum(k[None, :, :] * q[:, None, :], axis=2)
-        qk *= SM_SCALE
+        qk = tl.dot(q, tl.trans(k)) * SM_SCALE
 
         if causal:
             draft_pos = offs_n - draft_start
@@ -172,10 +171,8 @@ def _speculative_decode_split_kernel(
         alpha = tl.where(new_mask, 0.0, tl.exp(running_max - safe_new_max))
         weights = tl.where(new_mask[:, None], 0.0, tl.exp(qk - safe_new_max[:, None]))
         weights = tl.where(mask_m[:, None], weights, 0.0)
- 
-        prod = weights[:, :, None] * v[None, :, :]
- 
-        running_acc = running_acc * alpha[:, None] + tl.sum(prod, axis=1)
+  
+        running_acc = running_acc * alpha[:, None] + tl.dot(weights.to(v.dtype), v)
         running_sum = running_sum * alpha + tl.sum(weights, axis=1)
         running_max = safe_new_max
         pid0 += SPLIT_K

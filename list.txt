@@ -1,7 +1,7 @@
 Pointwise(done)
 	add+relu
     bias+gelu
-    silu+mul
+    swiglu
     bias + silu + mul
 Reductions(done)
     sum
@@ -10,7 +10,7 @@ Reductions(done)
     argmax
 Normalization(done)
     LayerNorm
-    RMSNorm
+    residual + RMSNorm
     residual + layernorm
 Softmax(done)
     softmax
@@ -19,7 +19,10 @@ Matrix(done)
     Tiled Autotuned GEMM
     Persistent Grouped GEMM
     Persistant Grouped Split-k GEMM
-Attention
+    Int8 quantised gemm(left)
+    AWQ(left)(cuda)
+    GPTQ(left)(cuda)
+Attention(done)
     FlashAttention v1
         causal + non-causal
         multi-head
@@ -41,6 +44,13 @@ Attention
         dense
         ragged
         paged
+QKV projection
+    Tiled Autotuned GEMM
+    Persistent Grouped GEMM
+    Persistant Grouped Split-k GEMM
+    Int8 quantised gemm
+    AWQ(cuda)
+    GPTQ(cuda)
 Parallel Algorithms (CUDA)
     Reduction
     Prefix Sum
@@ -55,38 +65,29 @@ Sampling(cuda)
     fused sampeling
 Memory & Layout(cuda)
     copy
-    type_cast
     contiguous
     transpose
+    type_cast
     permute
-    slice
     gather
     scatter
-Type conversions
-    FP32 → FP16
-    FP32 → BF16
-    FP16 ↔ BF16
-Packing
-    INT4 pack
-    INT4 unpack
-Scaling
+Scaling(cuda)
     Per-tensor
     Per-channel
     Per-token
     Per-group
-Quantize
+Quantize(cuda)
     FP16 → INT8
     FP16 → INT4
-Dequantize
+Dequantize(cuda)
     INT8 → FP16
     INT4 → FP16
-Transformer blocks
-    Fused Transformer Ops
-    bias + dropout + residual
-    RoPe
-    Swiglu mlp
 
 
 
-warp specialisation
-tma 
+
+
+RoPE
+QKV 
+INT8 GEMM
+INT8 QKV
